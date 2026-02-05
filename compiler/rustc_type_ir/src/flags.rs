@@ -430,7 +430,7 @@ impl<I: Interner> FlagComputation<I> {
         }
     }
 
-    fn add_ty(&mut self, ty: I::Ty) {
+    fn add_ty(&mut self, ty: ty::Ty<I>) {
         self.add_flags(ty.flags());
         self.add_exclusive_binder(ty.outer_exclusive_binder());
     }

@@ -36,15 +36,15 @@ pub enum TypeError<I: Interner> {
     RegionsInsufficientlyPolymorphic(ty::BoundRegion<I>, I::Region),
     RegionsPlaceholderMismatch,
 
-    Sorts(ExpectedFound<I::Ty>),
-    ArgumentSorts(ExpectedFound<I::Ty>, usize),
+    Sorts(ExpectedFound<ty::Ty<I>>),
+    ArgumentSorts(ExpectedFound<ty::Ty<I>>, usize),
     Traits(ExpectedFound<I::TraitId>),
     VariadicMismatch(ExpectedFound<bool>),
 
     /// Instantiating a type variable with the given type would have
     /// created a cycle (because it appears somewhere within that
     /// type).
-    CyclicTy(I::Ty),
+    CyclicTy(ty::Ty<I>),
     CyclicConst(I::Const),
     ProjectionMismatched(ExpectedFound<I::DefId>),
     ExistentialMismatch(ExpectedFound<I::BoundExistentialPredicates>),

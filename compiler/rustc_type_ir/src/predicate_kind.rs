@@ -25,7 +25,7 @@ pub enum ClauseKind<I: Interner> {
     RegionOutlives(ty::OutlivesPredicate<I, I::Region>),
 
     /// `where T: 'r`
-    TypeOutlives(ty::OutlivesPredicate<I, I::Ty>),
+    TypeOutlives(ty::OutlivesPredicate<I, ty::Ty<I>>),
 
     /// `where <T as TraitRef>::Name == X`, approximately.
     /// See the `ProjectionPredicate` struct for details.
@@ -33,7 +33,7 @@ pub enum ClauseKind<I: Interner> {
 
     /// Ensures that a const generic argument to a parameter `const N: u8`
     /// is of type `u8`.
-    ConstArgHasType(I::Const, I::Ty),
+    ConstArgHasType(I::Const, ty::Ty<I>),
 
     /// No syntax: `T` well-formed.
     WellFormed(I::Term),

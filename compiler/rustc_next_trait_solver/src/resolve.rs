@@ -19,7 +19,7 @@ where
     delegate: &'a D,
     /// We're able to use a cache here as the folder does not have any
     /// mutable state.
-    cache: DelayedMap<I::Ty, I::Ty>,
+    cache: DelayedMap<ty::Ty<I>, ty::Ty<I>>,
 }
 
 pub fn eager_resolve_vars<D: SolverDelegate, T: TypeFoldable<D::Interner>>(
@@ -45,7 +45,7 @@ impl<D: SolverDelegate<Interner = I>, I: Interner> TypeFolder<I> for EagerResolv
         self.delegate.cx()
     }
 
-    fn fold_ty(&mut self, t: I::Ty) -> I::Ty {
+    fn fold_ty(&mut self, t: ty::Ty<I>) -> ty::Ty<I> {
         match t.kind() {
             ty::Infer(ty::TyVar(vid)) => {
                 let resolved = self.delegate.opportunistic_resolve_ty_var(vid);

@@ -16,7 +16,7 @@ use crate::fold::{FallibleTypeFolder, TypeFoldable, TypeFolder, TypeSuperFoldabl
 use crate::inherent::*;
 use crate::lift::Lift;
 use crate::visit::{Flags, TypeSuperVisitable, TypeVisitable, TypeVisitableExt, TypeVisitor};
-use crate::{self as ty, DebruijnIndex, Interner, UniverseIndex};
+use crate::{self as ty, DebruijnIndex, Interner, TyKind, UniverseIndex, WithCachedTypeInfo};
 
 /// `Binder` is a binder for higher-ranked lifetimes or types. It is part of the
 /// compiler's representation for things like `for<'a> Fn(&'a isize)`
@@ -278,7 +278,7 @@ pub struct ValidateBoundVars<I: Interner> {
     // We only cache types because any complex const will have to step through
     // a type at some point anyways. We may encounter the same variable at
     // different levels of binding, so this can't just be `Ty`.
-    visited: SsoHashSet<(ty::DebruijnIndex, I::Ty)>,
+    visited: SsoHashSet<(ty::DebruijnIndex, ty::Ty<I>)>,
 }
 
 impl<I: Interner> ValidateBoundVars<I> {
@@ -301,7 +301,7 @@ impl<I: Interner> TypeVisitor<I> for ValidateBoundVars<I> {
         result
     }
 
-    fn visit_ty(&mut self, t: I::Ty) -> Self::Result {
+    fn visit_ty(&mut self, t: ty::Ty<I>) -> Self::Result {
         if t.outer_exclusive_binder() < self.binder_index
             || !self.visited.insert((self.binder_index, t))
         {
@@ -733,7 +733,7 @@ impl<'a, I: Interner> TypeFolder<I> for ArgFolder<'a, I> {
         }
     }
 
-    fn fold_ty(&mut self, t: I::Ty) -> I::Ty {
+    fn fold_ty(&mut self, t: ty::Ty<I>) -> ty::Ty<I> {
         if !t.has_param() {
             return t;
         }
@@ -762,7 +762,7 @@ impl<'a, I: Interner> TypeFolder<I> for ArgFolder<'a, I> {
 }
 
 impl<'a, I: Interner> ArgFolder<'a, I> {
-    fn ty_for_param(&self, p: I::ParamTy, source_ty: I::Ty) -> I::Ty {
+    fn ty_for_param(&self, p: I::ParamTy, source_ty: ty::Ty<I>) -> ty::Ty<I> {
         // Look up the type in the args. It really should be in there.
         let opt_ty = self.args.get(p.index() as usize).map(|arg| arg.kind());
         let ty = match opt_ty {
@@ -776,7 +776,7 @@ impl<'a, I: Interner> ArgFolder<'a, I> {
 
     #[cold]
     #[inline(never)]
-    fn type_param_expected(&self, p: I::ParamTy, ty: I::Ty, kind: ty::GenericArgKind<I>) -> ! {
+    fn type_param_expected(&self, p: I::ParamTy, ty: ty::Ty<I>, kind: ty::GenericArgKind<I>) -> ! {
         panic!(
             "expected type for `{:?}` ({:?}/{}) but found {:?} when instantiating, args={:?}",
             p,
@@ -789,7 +789,7 @@ impl<'a, I: Interner> ArgFolder<'a, I> {
 
     #[cold]
     #[inline(never)]
-    fn type_param_out_of_range(&self, p: I::ParamTy, ty: I::Ty) -> ! {
+    fn type_param_out_of_range(&self, p: I::ParamTy, ty: ty::Ty<I>) -> ! {
         panic!(
             "type parameter `{:?}` ({:?}/{}) out of range when instantiating, args={:?}",
             p,
@@ -1291,7 +1291,7 @@ impl<I: Interner> PlaceholderConst<I> {
         Self { universe: ui, bound, _tcx: PhantomData }
     }
 
-    pub fn find_const_ty_from_env(self, env: I::ParamEnv) -> I::Ty {
+    pub fn find_const_ty_from_env(self, env: I::ParamEnv) -> ty::Ty<I> {
         let mut candidates = env.caller_bounds().iter().filter_map(|clause| {
             // `ConstArgHasType` are never desugared to be higher ranked.
             match clause.kind().skip_binder() {
@@ -1325,3 +1325,13 @@ impl<I: Interner> PlaceholderConst<I> {
         ty
     }
 }
+
+/// Use this rather than `TyKind`, whenever possible.
+#[derive_where(Clone, Copy, PartialEq, Debug, Eq; I: Interner)]
+#[cfg_attr(
+    feature = "nightly",
+    derive(Encodable_NoContext, Decodable_NoContext, HashStable_NoContext)
+)]
+#[rustc_diagnostic_item = "Ty"]
+#[rustc_pass_by_value]
+pub struct Ty<I: Interner>(I::Interned<WithCachedTypeInfo<TyKind<I>>>);

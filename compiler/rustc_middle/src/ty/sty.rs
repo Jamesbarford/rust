@@ -49,6 +49,7 @@ pub type BoundRegion<'tcx> = ir::BoundRegion<TyCtxt<'tcx>>;
 pub type BoundVariableKind<'tcx> = ir::BoundVariableKind<TyCtxt<'tcx>>;
 pub type BoundRegionKind<'tcx> = ir::BoundRegionKind<TyCtxt<'tcx>>;
 pub type BoundTyKind<'tcx> = ir::BoundTyKind<TyCtxt<'tcx>>;
+pub type Ty<'tcx> = ir::Ty<TyCtxt<'tcx>>;
 
 pub trait Article {
     fn article(&self) -> &'static str;

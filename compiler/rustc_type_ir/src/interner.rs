@@ -73,10 +73,10 @@ pub trait Interner:
         + Hash
         + Eq
         + TypeFoldable<Self>
-        + SliceLike<Item = (ty::OpaqueTypeKey<Self>, Self::Ty)>;
+        + SliceLike<Item = (ty::OpaqueTypeKey<Self>, ty::Ty<Self>)>;
     fn mk_predefined_opaques_in_body(
         self,
-        data: &[(ty::OpaqueTypeKey<Self>, Self::Ty)],
+        data: &[(ty::OpaqueTypeKey<Self>, ty::Ty<Self>)],
     ) -> Self::PredefinedOpaques;
 
     type LocalDefIds: Copy
@@ -120,9 +120,8 @@ pub trait Interner:
     fn with_cached_task<T>(self, task: impl FnOnce() -> T) -> (T, Self::DepNodeIndex);
 
     // Kinds of tys
-    type Ty: Ty<Self>;
     type Tys: Tys<Self>;
-    type FnInputTys: Copy + Debug + Hash + Eq + SliceLike<Item = Self::Ty> + TypeVisitable<Self>;
+    type FnInputTys: Copy + Debug + Hash + Eq + SliceLike<Item = ty::Ty<Self>> + TypeVisitable<Self>;
     type ParamTy: ParamLike;
     type Symbol: Symbol<Self>;
 
@@ -174,6 +173,8 @@ pub trait Interner:
     type Clause: Clause<Self>;
     type Clauses: Clauses<Self>;
 
+    type Interned<T: Copy + Clone>: Debug;
+
     fn with_global_cache<R>(self, f: impl FnOnce(&mut search_graph::GlobalCache<Self>) -> R) -> R;
 
     fn canonical_param_env_cache_get_or_insert<R>(
@@ -201,9 +202,11 @@ pub trait Interner:
         def_id: Self::DefId,
     ) -> Option<Self::VariancesOf>;
 
-    fn type_of(self, def_id: Self::DefId) -> ty::EarlyBinder<Self, Self::Ty>;
-    fn type_of_opaque_hir_typeck(self, def_id: Self::LocalDefId)
-    -> ty::EarlyBinder<Self, Self::Ty>;
+    fn type_of(self, def_id: Self::DefId) -> ty::EarlyBinder<Self, ty::Ty<Self>>;
+    fn type_of_opaque_hir_typeck(
+        self,
+        def_id: Self::LocalDefId,
+    ) -> ty::EarlyBinder<Self, ty::Ty<Self>>;
     fn const_of_item(self, def_id: Self::DefId) -> ty::EarlyBinder<Self, Self::Const>;
     fn anon_const_kind(self, def_id: Self::DefId) -> ty::AnonConstKind;
 
@@ -238,7 +241,7 @@ pub trait Interner:
     fn mk_type_list_from_iter<I, T>(self, args: I) -> T::Output
     where
         I: Iterator<Item = T>,
-        T: CollectAndApply<Self::Ty, Self::Tys>;
+        T: CollectAndApply<ty::Ty<Self>, Self::Tys>;
 
     fn parent(self, def_id: Self::DefId) -> Self::DefId;
 
@@ -351,7 +354,7 @@ pub trait Interner:
     fn for_each_relevant_impl(
         self,
         trait_def_id: Self::TraitId,
-        self_ty: Self::Ty,
+        self_ty: ty::Ty<Self>,
         f: impl FnMut(Self::ImplId),
     );
     fn for_each_blanket_impl(self, trait_def_id: Self::TraitId, f: impl FnMut(Self::ImplId));
