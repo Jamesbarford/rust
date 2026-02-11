@@ -1483,7 +1483,7 @@ impl<'tcx> Ty<'tcx> {
     // FIXME(compiler-errors): Think about removing this.
     #[inline]
     pub fn outer_exclusive_binder(self) -> ty::DebruijnIndex {
-        self.0.outer_exclusive_binder
+        self.with_cached_type_info().outer_exclusive_binder
     }
 }
 

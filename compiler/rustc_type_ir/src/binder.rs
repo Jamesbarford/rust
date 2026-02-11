@@ -1,4 +1,4 @@
-use std::fmt;
+use std::fmt::{self, Debug};
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::ops::{ControlFlow, Deref};
@@ -15,8 +15,13 @@ use crate::data_structures::SsoHashSet;
 use crate::fold::{FallibleTypeFolder, TypeFoldable, TypeFolder, TypeSuperFoldable};
 use crate::inherent::*;
 use crate::lift::Lift;
-use crate::visit::{Flags, TypeSuperVisitable, TypeVisitable, TypeVisitableExt, TypeVisitor};
-use crate::{self as ty, DebruijnIndex, Interner, TyKind, UniverseIndex, WithCachedTypeInfo};
+use crate::visit::{
+    Flags, TypeSuperVisitable, TypeVisitable, TypeVisitableExt, TypeVisitor, VisitorResult,
+};
+use crate::{
+    self as ty, CollectAndApply, DebruijnIndex, Interner, Mutability, TyKind, TypeFlags,
+    UniverseIndex, WithCachedTypeInfo, try_visit,
+};
 
 /// `Binder` is a binder for higher-ranked lifetimes or types. It is part of the
 /// compiler's representation for things like `for<'a> Fn(&'a isize)`
@@ -278,7 +283,7 @@ pub struct ValidateBoundVars<I: Interner> {
     // We only cache types because any complex const will have to step through
     // a type at some point anyways. We may encounter the same variable at
     // different levels of binding, so this can't just be `Ty`.
-    visited: SsoHashSet<(ty::DebruijnIndex, ty::Ty<I>)>,
+    visited: SsoHashSet<(ty::DebruijnIndex, Ty<I>)>,
 }
 
 impl<I: Interner> ValidateBoundVars<I> {
@@ -301,7 +306,7 @@ impl<I: Interner> TypeVisitor<I> for ValidateBoundVars<I> {
         result
     }
 
-    fn visit_ty(&mut self, t: ty::Ty<I>) -> Self::Result {
+    fn visit_ty(&mut self, t: Ty<I>) -> Self::Result {
         if t.outer_exclusive_binder() < self.binder_index
             || !self.visited.insert((self.binder_index, t))
         {
@@ -733,7 +738,7 @@ impl<'a, I: Interner> TypeFolder<I> for ArgFolder<'a, I> {
         }
     }
 
-    fn fold_ty(&mut self, t: ty::Ty<I>) -> ty::Ty<I> {
+    fn fold_ty(&mut self, t: Ty<I>) -> Ty<I> {
         if !t.has_param() {
             return t;
         }
@@ -762,7 +767,7 @@ impl<'a, I: Interner> TypeFolder<I> for ArgFolder<'a, I> {
 }
 
 impl<'a, I: Interner> ArgFolder<'a, I> {
-    fn ty_for_param(&self, p: I::ParamTy, source_ty: ty::Ty<I>) -> ty::Ty<I> {
+    fn ty_for_param(&self, p: I::ParamTy, source_ty: Ty<I>) -> Ty<I> {
         // Look up the type in the args. It really should be in there.
         let opt_ty = self.args.get(p.index() as usize).map(|arg| arg.kind());
         let ty = match opt_ty {
@@ -776,7 +781,7 @@ impl<'a, I: Interner> ArgFolder<'a, I> {
 
     #[cold]
     #[inline(never)]
-    fn type_param_expected(&self, p: I::ParamTy, ty: ty::Ty<I>, kind: ty::GenericArgKind<I>) -> ! {
+    fn type_param_expected(&self, p: I::ParamTy, ty: Ty<I>, kind: ty::GenericArgKind<I>) -> ! {
         panic!(
             "expected type for `{:?}` ({:?}/{}) but found {:?} when instantiating, args={:?}",
             p,
@@ -789,7 +794,7 @@ impl<'a, I: Interner> ArgFolder<'a, I> {
 
     #[cold]
     #[inline(never)]
-    fn type_param_out_of_range(&self, p: I::ParamTy, ty: ty::Ty<I>) -> ! {
+    fn type_param_out_of_range(&self, p: I::ParamTy, ty: Ty<I>) -> ! {
         panic!(
             "type parameter `{:?}` ({:?}/{}) out of range when instantiating, args={:?}",
             p,
@@ -1291,7 +1296,7 @@ impl<I: Interner> PlaceholderConst<I> {
         Self { universe: ui, bound, _tcx: PhantomData }
     }
 
-    pub fn find_const_ty_from_env(self, env: I::ParamEnv) -> ty::Ty<I> {
+    pub fn find_const_ty_from_env(self, env: I::ParamEnv) -> Ty<I> {
         let mut candidates = env.caller_bounds().iter().filter_map(|clause| {
             // `ConstArgHasType` are never desugared to be higher ranked.
             match clause.kind().skip_binder() {
@@ -1327,11 +1332,555 @@ impl<I: Interner> PlaceholderConst<I> {
 }
 
 /// Use this rather than `TyKind`, whenever possible.
-#[derive_where(Clone, Copy, PartialEq, Debug, Eq; I: Interner)]
+#[derive_where(Copy; I: Interner, I::Interned<WithCachedTypeInfo<TyKind<I>>>: Copy)]
+#[derive_where(Clone, PartialEq, Eq, Hash, Debug; I: Interner)]
 #[cfg_attr(
     feature = "nightly",
     derive(Encodable_NoContext, Decodable_NoContext, HashStable_NoContext)
 )]
 #[rustc_diagnostic_item = "Ty"]
 #[rustc_pass_by_value]
-pub struct Ty<I: Interner>(I::Interned<WithCachedTypeInfo<TyKind<I>>>);
+#[rustc_has_incoherent_inherent_impls]
+pub struct Ty<I: Interner>(pub I::Interned<WithCachedTypeInfo<TyKind<I>>>);
+
+impl<I: Interner> Ty<I> {
+    #[inline]
+    pub fn from_interned(interned: I::Interned<WithCachedTypeInfo<TyKind<I>>>) -> Self {
+        Ty(interned)
+    }
+
+    #[inline]
+    pub fn interned(self) -> I::Interned<WithCachedTypeInfo<TyKind<I>>> {
+        self.0
+    }
+
+    #[inline]
+    pub fn with_cached_type_info(&self) -> &WithCachedTypeInfo<TyKind<I>>
+    where
+        I::Interned<WithCachedTypeInfo<TyKind<I>>>: Deref<Target = WithCachedTypeInfo<TyKind<I>>>,
+    {
+        &*self.0
+    }
+}
+
+impl<I: Interner> IntoKind for Ty<I>
+where
+    I::Interned<WithCachedTypeInfo<TyKind<I>>>: Deref<Target = WithCachedTypeInfo<TyKind<I>>>,
+{
+    type Kind = TyKind<I>;
+
+    #[inline]
+    fn kind(self) -> TyKind<I> {
+        (*self.0).internee
+    }
+}
+
+impl<I: Interner> Flags for Ty<I>
+where
+    I::Interned<WithCachedTypeInfo<TyKind<I>>>: Deref<Target = WithCachedTypeInfo<TyKind<I>>>,
+{
+    #[inline]
+    fn flags(&self) -> TypeFlags {
+        self.0.flags
+    }
+
+    #[inline]
+    fn outer_exclusive_binder(&self) -> DebruijnIndex {
+        self.0.outer_exclusive_binder
+    }
+}
+
+impl<I: Interner> TypeVisitable<I> for Ty<I> {
+    fn visit_with<V: TypeVisitor<I>>(&self, visitor: &mut V) -> V::Result {
+        visitor.visit_ty(*self)
+    }
+}
+
+impl<I: Interner> TypeSuperVisitable<I> for Ty<I>
+where
+    I::Interned<WithCachedTypeInfo<TyKind<I>>>: Deref<Target = WithCachedTypeInfo<TyKind<I>>>,
+    I::BoundExistentialPredicates: TypeVisitable<I>,
+    I::Const: TypeVisitable<I>,
+    I::ErrorGuaranteed: TypeVisitable<I>,
+    I::GenericArgs: TypeVisitable<I>,
+    I::Pat: TypeVisitable<I>,
+    I::Region: TypeVisitable<I>,
+    I::Tys: TypeVisitable<I>,
+{
+    fn super_visit_with<V: TypeVisitor<I>>(&self, visitor: &mut V) -> V::Result {
+        match (*self).kind() {
+            ty::RawPtr(ty, _mutbl) => ty.visit_with(visitor),
+            ty::Array(typ, sz) => {
+                try_visit!(typ.visit_with(visitor));
+                sz.visit_with(visitor)
+            }
+            ty::Slice(typ) => typ.visit_with(visitor),
+            ty::Adt(_, args) => args.visit_with(visitor),
+            ty::Dynamic(trait_ty, reg) => {
+                try_visit!(trait_ty.visit_with(visitor));
+                reg.visit_with(visitor)
+            }
+            ty::Tuple(ts) => ts.visit_with(visitor),
+            ty::FnDef(_, args) => args.visit_with(visitor),
+            ty::FnPtr(sig_tys, _) => sig_tys.visit_with(visitor),
+            ty::UnsafeBinder(f) => f.visit_with(visitor),
+            ty::Ref(r, ty, _) => {
+                try_visit!(r.visit_with(visitor));
+                ty.visit_with(visitor)
+            }
+            ty::Coroutine(_did, args) => args.visit_with(visitor),
+            ty::CoroutineWitness(_did, args) => args.visit_with(visitor),
+            ty::Closure(_did, args) => args.visit_with(visitor),
+            ty::CoroutineClosure(_did, args) => args.visit_with(visitor),
+            ty::Alias(_, data) => data.visit_with(visitor),
+            ty::Pat(ty, pat) => {
+                try_visit!(ty.visit_with(visitor));
+                pat.visit_with(visitor)
+            }
+            ty::Error(guar) => guar.visit_with(visitor),
+
+            ty::Bool
+            | ty::Char
+            | ty::Str
+            | ty::Int(_)
+            | ty::Uint(_)
+            | ty::Float(_)
+            | ty::Infer(_)
+            | ty::Param(..)
+            | ty::Bound(..)
+            | ty::Placeholder(..)
+            | ty::Never
+            | ty::Foreign(..) => V::Result::output(),
+        }
+    }
+}
+
+impl<I: Interner> TypeFoldable<I> for Ty<I> {
+    fn try_fold_with<F: FallibleTypeFolder<I>>(self, folder: &mut F) -> Result<Self, F::Error> {
+        folder.try_fold_ty(self)
+    }
+
+    fn fold_with<F: TypeFolder<I>>(self, folder: &mut F) -> Self {
+        folder.fold_ty(self)
+    }
+}
+
+impl<I: Interner> TypeSuperFoldable<I> for Ty<I>
+where
+    I::Interned<WithCachedTypeInfo<TyKind<I>>>: Deref<Target = WithCachedTypeInfo<TyKind<I>>>,
+    I::BoundExistentialPredicates: TypeFoldable<I>,
+    I::Const: TypeFoldable<I>,
+    I::GenericArgs: TypeFoldable<I>,
+    I::Pat: TypeFoldable<I>,
+    I::Region: TypeFoldable<I>,
+    I::Tys: TypeFoldable<I>,
+{
+    fn try_super_fold_with<F: FallibleTypeFolder<I>>(
+        self,
+        folder: &mut F,
+    ) -> Result<Self, F::Error> {
+        let kind = match self.kind() {
+            ty::RawPtr(ty, mutbl) => ty::RawPtr(ty.try_fold_with(folder)?, mutbl),
+            ty::Array(typ, sz) => ty::Array(typ.try_fold_with(folder)?, sz.try_fold_with(folder)?),
+            ty::Slice(typ) => ty::Slice(typ.try_fold_with(folder)?),
+            ty::Adt(tid, args) => ty::Adt(tid, args.try_fold_with(folder)?),
+            ty::Dynamic(trait_ty, region) => {
+                ty::Dynamic(trait_ty.try_fold_with(folder)?, region.try_fold_with(folder)?)
+            }
+            ty::Tuple(ts) => ty::Tuple(ts.try_fold_with(folder)?),
+            ty::FnDef(def_id, args) => ty::FnDef(def_id, args.try_fold_with(folder)?),
+            ty::FnPtr(sig_tys, hdr) => ty::FnPtr(sig_tys.try_fold_with(folder)?, hdr),
+            ty::UnsafeBinder(f) => ty::UnsafeBinder(f.try_fold_with(folder)?),
+            ty::Ref(r, ty, mutbl) => {
+                ty::Ref(r.try_fold_with(folder)?, ty.try_fold_with(folder)?, mutbl)
+            }
+            ty::Coroutine(did, args) => ty::Coroutine(did, args.try_fold_with(folder)?),
+            ty::CoroutineWitness(did, args) => {
+                ty::CoroutineWitness(did, args.try_fold_with(folder)?)
+            }
+            ty::Closure(did, args) => ty::Closure(did, args.try_fold_with(folder)?),
+            ty::CoroutineClosure(did, args) => {
+                ty::CoroutineClosure(did, args.try_fold_with(folder)?)
+            }
+            ty::Alias(kind, data) => ty::Alias(kind, data.try_fold_with(folder)?),
+            ty::Pat(ty, pat) => ty::Pat(ty.try_fold_with(folder)?, pat.try_fold_with(folder)?),
+
+            ty::Bool
+            | ty::Char
+            | ty::Str
+            | ty::Int(_)
+            | ty::Uint(_)
+            | ty::Float(_)
+            | ty::Error(_)
+            | ty::Infer(_)
+            | ty::Param(..)
+            | ty::Bound(..)
+            | ty::Placeholder(..)
+            | ty::Never
+            | ty::Foreign(..) => return Ok(self),
+        };
+
+        Ok(if self.kind() == kind { self } else { folder.cx().mk_ty_from_kind(kind) })
+    }
+
+    fn super_fold_with<F: TypeFolder<I>>(self, folder: &mut F) -> Self {
+        let kind = match self.kind() {
+            ty::RawPtr(ty, mutbl) => ty::RawPtr(ty.fold_with(folder), mutbl),
+            ty::Array(typ, sz) => ty::Array(typ.fold_with(folder), sz.fold_with(folder)),
+            ty::Slice(typ) => ty::Slice(typ.fold_with(folder)),
+            ty::Adt(tid, args) => ty::Adt(tid, args.fold_with(folder)),
+            ty::Dynamic(trait_ty, region) => {
+                ty::Dynamic(trait_ty.fold_with(folder), region.fold_with(folder))
+            }
+            ty::Tuple(ts) => ty::Tuple(ts.fold_with(folder)),
+            ty::FnDef(def_id, args) => ty::FnDef(def_id, args.fold_with(folder)),
+            ty::FnPtr(sig_tys, hdr) => ty::FnPtr(sig_tys.fold_with(folder), hdr),
+            ty::UnsafeBinder(f) => ty::UnsafeBinder(f.fold_with(folder)),
+            ty::Ref(r, ty, mutbl) => ty::Ref(r.fold_with(folder), ty.fold_with(folder), mutbl),
+            ty::Coroutine(did, args) => ty::Coroutine(did, args.fold_with(folder)),
+            ty::CoroutineWitness(did, args) => ty::CoroutineWitness(did, args.fold_with(folder)),
+            ty::Closure(did, args) => ty::Closure(did, args.fold_with(folder)),
+            ty::CoroutineClosure(did, args) => ty::CoroutineClosure(did, args.fold_with(folder)),
+            ty::Alias(kind, data) => ty::Alias(kind, data.fold_with(folder)),
+            ty::Pat(ty, pat) => ty::Pat(ty.fold_with(folder), pat.fold_with(folder)),
+
+            ty::Bool
+            | ty::Char
+            | ty::Str
+            | ty::Int(_)
+            | ty::Uint(_)
+            | ty::Float(_)
+            | ty::Error(_)
+            | ty::Infer(_)
+            | ty::Param(..)
+            | ty::Bound(..)
+            | ty::Placeholder(..)
+            | ty::Never
+            | ty::Foreign(..) => return self,
+        };
+
+        if self.kind() == kind { self } else { folder.cx().mk_ty_from_kind(kind) }
+    }
+}
+
+impl<I: Interner> Ty<I>
+where
+    I::BoundExistentialPredicates: TypeFoldable<I> + TypeVisitable<I>,
+    I::GenericArg: From<Ty<I>>,
+    I::GenericArgs: TypeFoldable<I> + TypeVisitable<I>,
+    I::Const: TypeFoldable<I> + TypeVisitable<I>,
+    I::ErrorGuaranteed: TypeVisitable<I>,
+    I::Pat: TypeFoldable<I> + TypeVisitable<I>,
+    I::Region: TypeFoldable<I> + TypeVisitable<I>,
+    I::Term: From<Ty<I>>,
+    I::Tys: TypeFoldable<I> + TypeVisitable<I>,
+    I::Interned<WithCachedTypeInfo<TyKind<I>>>:
+        Copy + Clone + Debug + Hash + Eq + Deref<Target = WithCachedTypeInfo<TyKind<I>>>,
+{
+    /// Avoid using this in favour of more specific `new_*` methods, where possible.
+    /// The more specific methods will often optimize their creation.
+    #[allow(rustc::usage_of_ty_tykind)]
+    #[inline]
+    pub fn new(interner: I, st: TyKind<I>) -> Self {
+        interner.mk_ty_from_kind(st)
+    }
+
+    pub fn new_unit(interner: I) -> Self {
+        Self::new(interner, ty::Tuple(Default::default()))
+    }
+
+    pub fn new_bool(interner: I) -> Self {
+        Self::new(interner, ty::Bool)
+    }
+
+    pub fn new_u8(interner: I) -> Self {
+        Self::new(interner, ty::Uint(ty::UintTy::U8))
+    }
+
+    pub fn new_usize(interner: I) -> Self {
+        Self::new(interner, ty::Uint(ty::UintTy::Usize))
+    }
+
+    pub fn new_infer(interner: I, var: ty::InferTy) -> Self {
+        Self::new(interner, ty::Infer(var))
+    }
+
+    pub fn new_var(interner: I, var: ty::TyVid) -> Self {
+        Self::new(interner, ty::Infer(ty::InferTy::TyVar(var)))
+    }
+
+    pub fn new_param(interner: I, param: I::ParamTy) -> Self {
+        Self::new(interner, ty::Param(param))
+    }
+
+    pub fn new_placeholder(interner: I, param: ty::PlaceholderType<I>) -> Self {
+        Self::new(interner, ty::Placeholder(param))
+    }
+
+    pub fn new_bound(interner: I, debruijn: ty::DebruijnIndex, var: ty::BoundTy<I>) -> Self {
+        Self::new(interner, ty::Bound(ty::BoundVarIndexKind::Bound(debruijn), var))
+    }
+
+    pub fn new_anon_bound(interner: I, debruijn: ty::DebruijnIndex, var: ty::BoundVar) -> Self {
+        let bound_ty = ty::BoundTy { var, kind: ty::BoundTyKind::Anon };
+        Self::new(interner, ty::Bound(ty::BoundVarIndexKind::Bound(debruijn), bound_ty))
+    }
+
+    pub fn new_canonical_bound(interner: I, var: ty::BoundVar) -> Self {
+        let bound_ty = ty::BoundTy { var, kind: ty::BoundTyKind::Anon };
+        Self::new(interner, ty::Bound(ty::BoundVarIndexKind::Canonical, bound_ty))
+    }
+
+    pub fn new_alias(interner: I, kind: ty::AliasTyKind, alias_ty: ty::AliasTy<I>) -> Self {
+        Self::new(interner, ty::Alias(kind, alias_ty))
+    }
+
+    pub fn new_projection_from_args(interner: I, def_id: I::DefId, args: I::GenericArgs) -> Self {
+        Ty::new_alias(
+            interner,
+            ty::AliasTyKind::Projection,
+            ty::AliasTy::new_from_args(interner, def_id, args),
+        )
+    }
+
+    pub fn new_projection(
+        interner: I,
+        def_id: I::DefId,
+        args: impl IntoIterator<Item: Into<I::GenericArg>>,
+    ) -> Self {
+        Ty::new_alias(
+            interner,
+            ty::AliasTyKind::Projection,
+            ty::AliasTy::new(interner, def_id, args),
+        )
+    }
+
+    /// Constructs a `TyKind::Error` type with current `ErrorGuaranteed`
+    pub fn new_error(interner: I, guar: I::ErrorGuaranteed) -> Self {
+        Self::new(interner, ty::Error(guar))
+    }
+
+    pub fn new_adt(interner: I, adt_def: I::AdtDef, args: I::GenericArgs) -> Self {
+        Self::new(interner, ty::Adt(adt_def, args))
+    }
+
+    pub fn new_foreign(interner: I, def_id: I::ForeignId) -> Self {
+        Self::new(interner, ty::Foreign(def_id))
+    }
+
+    pub fn new_dynamic(
+        interner: I,
+        preds: I::BoundExistentialPredicates,
+        region: I::Region,
+    ) -> Self {
+        Self::new(interner, ty::Dynamic(preds, region))
+    }
+
+    pub fn new_coroutine(interner: I, def_id: I::CoroutineId, args: I::GenericArgs) -> Self {
+        Self::new(interner, ty::Coroutine(def_id, args))
+    }
+
+    pub fn new_coroutine_closure(
+        interner: I,
+        def_id: I::CoroutineClosureId,
+        args: I::GenericArgs,
+    ) -> Self {
+        Self::new(interner, ty::CoroutineClosure(def_id, args))
+    }
+
+    pub fn new_closure(interner: I, def_id: I::ClosureId, args: I::GenericArgs) -> Self {
+        Self::new(interner, ty::Closure(def_id, args))
+    }
+
+    pub fn new_coroutine_witness(
+        interner: I,
+        def_id: I::CoroutineId,
+        args: I::GenericArgs,
+    ) -> Self {
+        Self::new(interner, ty::CoroutineWitness(def_id, args))
+    }
+
+    pub fn new_coroutine_witness_for_coroutine(
+        interner: I,
+        def_id: I::CoroutineId,
+        coroutine_args: I::GenericArgs,
+    ) -> Self {
+        interner.mk_coroutine_witness_for_coroutine(def_id, coroutine_args)
+    }
+
+    pub fn new_ptr(interner: I, ty: Self, mutbl: Mutability) -> Self {
+        Self::new(interner, ty::RawPtr(ty, mutbl))
+    }
+
+    pub fn new_ref(interner: I, region: I::Region, ty: Self, mutbl: Mutability) -> Self {
+        Self::new(interner, ty::Ref(region, ty, mutbl))
+    }
+
+    pub fn new_array_with_const_len(interner: I, ty: Self, len: I::Const) -> Self {
+        Self::new(interner, ty::Array(ty, len))
+    }
+
+    pub fn new_slice(interner: I, ty: Self) -> Self {
+        Self::new(interner, ty::Slice(ty))
+    }
+
+    pub fn new_tup(interner: I, tys: &[Ty<I>]) -> Self {
+        if tys.is_empty() {
+            return Self::new_unit(interner);
+        }
+
+        let tys = interner.mk_type_list_from_iter(tys.iter().copied());
+        Self::new(interner, ty::Tuple(tys))
+    }
+
+    pub fn new_tup_from_iter<It, T>(interner: I, iter: It) -> T::Output
+    where
+        It: Iterator<Item = T>,
+        T: CollectAndApply<Self, Self>,
+    {
+        T::collect_and_apply(iter, |ts| Self::new_tup(interner, ts))
+    }
+
+    pub fn new_fn_def(interner: I, def_id: I::FunctionId, args: I::GenericArgs) -> Self {
+        Self::new(interner, ty::FnDef(def_id, args))
+    }
+
+    pub fn new_fn_ptr(interner: I, sig: ty::Binder<I, ty::FnSig<I>>) -> Self {
+        let (sig_tys, hdr) = sig.split();
+        Self::new(interner, ty::FnPtr(sig_tys, hdr))
+    }
+
+    pub fn new_pat(interner: I, ty: Self, pat: I::Pat) -> Self {
+        Self::new(interner, ty::Pat(ty, pat))
+    }
+
+    pub fn new_unsafe_binder(interner: I, ty: ty::Binder<I, Ty<I>>) -> Self {
+        Self::new(interner, ty::UnsafeBinder(ty::UnsafeBinderInner::from(ty)))
+    }
+
+    pub fn tuple_fields(self) -> I::Tys {
+        match self.kind() {
+            ty::Tuple(tys) => tys,
+            _ => panic!("tuple_fields called on non-tuple: {self:?}"),
+        }
+    }
+
+    pub fn to_opt_closure_kind(self) -> Option<ty::ClosureKind> {
+        match self.kind() {
+            ty::Int(int_ty) => match int_ty {
+                ty::IntTy::I8 => Some(ty::ClosureKind::Fn),
+                ty::IntTy::I16 => Some(ty::ClosureKind::FnMut),
+                ty::IntTy::I32 => Some(ty::ClosureKind::FnOnce),
+                _ => panic!("cannot convert type `{self:?}` to a closure kind"),
+            },
+
+            ty::Bound(..) | ty::Placeholder(_) | ty::Param(_) | ty::Infer(_) => None,
+
+            ty::Error(_) => Some(ty::ClosureKind::Fn),
+
+            _ => panic!("cannot convert type `{self:?}` to a closure kind"),
+        }
+    }
+
+    pub fn from_closure_kind(interner: I, kind: ty::ClosureKind) -> Self {
+        let int_ty = match kind {
+            ty::ClosureKind::Fn => ty::IntTy::I8,
+            ty::ClosureKind::FnMut => ty::IntTy::I16,
+            ty::ClosureKind::FnOnce => ty::IntTy::I32,
+        };
+        Self::new(interner, ty::Int(int_ty))
+    }
+
+    pub fn from_coroutine_closure_kind(interner: I, kind: ty::ClosureKind) -> Self {
+        let int_ty = match kind {
+            ty::ClosureKind::Fn | ty::ClosureKind::FnMut => ty::IntTy::I16,
+            ty::ClosureKind::FnOnce => ty::IntTy::I32,
+        };
+        Self::new(interner, ty::Int(int_ty))
+    }
+
+    // ==== Below here is what used to be `compiler/rustc_middle/src/ty/sty.rs`
+    // Type utilities L931
+    #[inline(always)]
+    pub fn flags(self) -> TypeFlags {
+        self.0.flags
+    }
+
+    pub fn is_ty_var(self) -> bool {
+        matches!(self.kind(), ty::Infer(ty::TyVar(_)))
+    }
+
+    pub fn is_ty_error(self) -> bool {
+        matches!(self.kind(), ty::Error(_))
+    }
+
+    /// Returns `true` if this type is a floating point type.
+    pub fn is_floating_point(self) -> bool {
+        matches!(self.kind(), ty::Float(_) | ty::Infer(ty::FloatVar(_)))
+    }
+
+    #[inline]
+    pub fn is_trait(self) -> bool {
+        matches!(self.kind(), ty::Dynamic(_, _))
+    }
+
+    pub fn is_integral(self) -> bool {
+        matches!(self.kind(), ty::Infer(ty::IntVar(_)) | ty::Int(_) | ty::Uint(_))
+    }
+
+    pub fn is_fn_ptr(self) -> bool {
+        matches!(self.kind(), ty::FnPtr(..))
+    }
+
+    pub fn has_unsafe_fields(self) -> bool {
+        match self.kind() {
+            ty::Adt(adt_def, _) => adt_def.has_unsafe_fields(),
+            _ => false,
+        }
+    }
+
+    #[tracing::instrument(level = "trace", skip(interner))]
+    pub fn fn_sig(self, interner: I) -> ty::Binder<I, ty::FnSig<I>> {
+        self.kind().fn_sig(interner)
+    }
+
+    pub fn discriminant_ty(self, interner: I) -> Ty<I> {
+        interner.ty_discriminant_ty(self)
+    }
+
+    pub fn is_known_rigid(self) -> bool {
+        self.kind().is_known_rigid()
+    }
+
+    pub fn is_guaranteed_unsized_raw(self) -> bool {
+        match self.kind() {
+            ty::Dynamic(_, _) | ty::Slice(_) | ty::Str => true,
+            ty::Bool
+            | ty::Char
+            | ty::Int(_)
+            | ty::Uint(_)
+            | ty::Float(_)
+            | ty::Adt(_, _)
+            | ty::Foreign(_)
+            | ty::Array(_, _)
+            | ty::Pat(_, _)
+            | ty::RawPtr(_, _)
+            | ty::Ref(_, _, _)
+            | ty::FnDef(_, _)
+            | ty::FnPtr(_, _)
+            | ty::UnsafeBinder(_)
+            | ty::Closure(_, _)
+            | ty::CoroutineClosure(_, _)
+            | ty::Coroutine(_, _)
+            | ty::CoroutineWitness(_, _)
+            | ty::Never
+            | ty::Tuple(_)
+            | ty::Alias(_, _)
+            | ty::Param(_)
+            | ty::Bound(_, _)
+            | ty::Placeholder(_)
+            | ty::Infer(_)
+            | ty::Error(_) => false,
+        }
+    }
+}

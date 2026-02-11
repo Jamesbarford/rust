@@ -229,7 +229,7 @@ impl<'tcx> GenericArg<'tcx> {
                 REGION_TAG => GenericArgKind::Lifetime(ty::Region(Interned::new_unchecked(
                     ptr.cast::<ty::RegionKind<'tcx>>().as_ref(),
                 ))),
-                TYPE_TAG => GenericArgKind::Type(Ty(Interned::new_unchecked(
+                TYPE_TAG => GenericArgKind::Type(Ty::from_interned(Interned::new_unchecked(
                     ptr.cast::<WithCachedTypeInfo<ty::TyKind<'tcx>>>().as_ref(),
                 ))),
                 CONST_TAG => GenericArgKind::Const(ty::Const(Interned::new_unchecked(

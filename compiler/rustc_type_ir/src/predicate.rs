@@ -14,7 +14,7 @@ use crate::inherent::*;
 use crate::lift::Lift;
 use crate::upcast::{Upcast, UpcastFrom};
 use crate::visit::TypeVisitableExt as _;
-use crate::{self as ty, Interner};
+use crate::{self as ty, Interner, Ty};
 
 /// `A: 'region`
 #[derive_where(Clone, Hash, PartialEq, Debug; I: Interner, A)]
@@ -99,7 +99,7 @@ impl<I: Interner> TraitRef<I> {
         )
     }
 
-    pub fn with_replaced_self_ty(self, interner: I, self_ty: ty::Ty<I>) -> Self {
+    pub fn with_replaced_self_ty(self, interner: I, self_ty: Ty<I>) -> Self {
         TraitRef::new(
             interner,
             self.def_id,
@@ -108,13 +108,13 @@ impl<I: Interner> TraitRef<I> {
     }
 
     #[inline]
-    pub fn self_ty(&self) -> ty::Ty<I> {
+    pub fn self_ty(&self) -> Ty<I> {
         self.args.type_at(0)
     }
 }
 
 impl<I: Interner> ty::Binder<I, TraitRef<I>> {
-    pub fn self_ty(&self) -> ty::Binder<I, ty::Ty<I>> {
+    pub fn self_ty(&self) -> ty::Binder<I, Ty<I>> {
         self.map_bound_ref(|tr| tr.self_ty())
     }
 
@@ -150,7 +150,7 @@ pub struct TraitPredicate<I: Interner> {
 impl<I: Interner> Eq for TraitPredicate<I> {}
 
 impl<I: Interner> TraitPredicate<I> {
-    pub fn with_replaced_self_ty(self, interner: I, self_ty: ty::Ty<I>) -> Self {
+    pub fn with_replaced_self_ty(self, interner: I, self_ty: Ty<I>) -> Self {
         Self {
             trait_ref: self.trait_ref.with_replaced_self_ty(interner, self_ty),
             polarity: self.polarity,
@@ -161,7 +161,7 @@ impl<I: Interner> TraitPredicate<I> {
         self.trait_ref.def_id
     }
 
-    pub fn self_ty(self) -> ty::Ty<I> {
+    pub fn self_ty(self) -> Ty<I> {
         self.trait_ref.self_ty()
     }
 }
@@ -172,7 +172,7 @@ impl<I: Interner> ty::Binder<I, TraitPredicate<I>> {
         self.skip_binder().def_id()
     }
 
-    pub fn self_ty(self) -> ty::Binder<I, ty::Ty<I>> {
+    pub fn self_ty(self) -> ty::Binder<I, Ty<I>> {
         self.map_bound(|trait_ref| trait_ref.self_ty())
     }
 
@@ -303,7 +303,7 @@ impl<I: Interner> ty::Binder<I, ExistentialPredicate<I>> {
     /// Given an existential predicate like `?Self: PartialEq<u32>` (e.g., derived from `dyn PartialEq<u32>`),
     /// and a concrete type `self_ty`, returns a full predicate where the existentially quantified variable `?Self`
     /// has been replaced with `self_ty` (e.g., `self_ty: PartialEq<u32>`, in our example).
-    pub fn with_self_ty(&self, cx: I, self_ty: ty::Ty<I>) -> I::Clause {
+    pub fn with_self_ty(&self, cx: I, self_ty: Ty<I>) -> I::Clause {
         match self.skip_binder() {
             ExistentialPredicate::Trait(tr) => self.rebind(tr).with_self_ty(cx, self_ty).upcast(cx),
             ExistentialPredicate::Projection(p) => {
@@ -379,7 +379,7 @@ impl<I: Interner> ExistentialTraitRef<I> {
     /// we convert the principal trait-ref into a normal trait-ref,
     /// you must give *some* self type. A common choice is `mk_err()`
     /// or some placeholder type.
-    pub fn with_self_ty(self, interner: I, self_ty: ty::Ty<I>) -> TraitRef<I> {
+    pub fn with_self_ty(self, interner: I, self_ty: Ty<I>) -> TraitRef<I> {
         // otherwise the escaping vars would be captured by the binder
         // debug_assert!(!self_ty.has_escaping_bound_vars());
 
@@ -396,7 +396,7 @@ impl<I: Interner> ty::Binder<I, ExistentialTraitRef<I>> {
     /// we convert the principal trait-ref into a normal trait-ref,
     /// you must give *some* self type. A common choice is `mk_err()`
     /// or some placeholder type.
-    pub fn with_self_ty(&self, cx: I, self_ty: ty::Ty<I>) -> ty::Binder<I, TraitRef<I>> {
+    pub fn with_self_ty(&self, cx: I, self_ty: Ty<I>) -> ty::Binder<I, TraitRef<I>> {
         self.map_bound(|trait_ref| trait_ref.with_self_ty(cx, self_ty))
     }
 }
@@ -452,7 +452,7 @@ impl<I: Interner> ExistentialProjection<I> {
         ExistentialTraitRef::new_from_args(interner, def_id.try_into().unwrap(), args)
     }
 
-    pub fn with_self_ty(&self, interner: I, self_ty: ty::Ty<I>) -> ProjectionPredicate<I> {
+    pub fn with_self_ty(&self, interner: I, self_ty: Ty<I>) -> ProjectionPredicate<I> {
         // otherwise the escaping regions would be captured by the binders
         debug_assert!(!self_ty.has_escaping_bound_vars());
 
@@ -480,7 +480,7 @@ impl<I: Interner> ExistentialProjection<I> {
 }
 
 impl<I: Interner> ty::Binder<I, ExistentialProjection<I>> {
-    pub fn with_self_ty(&self, cx: I, self_ty: ty::Ty<I>) -> ty::Binder<I, ProjectionPredicate<I>> {
+    pub fn with_self_ty(&self, cx: I, self_ty: Ty<I>) -> ty::Binder<I, ProjectionPredicate<I>> {
         self.map_bound(|p| p.with_self_ty(cx, self_ty))
     }
 
@@ -673,11 +673,11 @@ impl<I: Interner> AliasTerm<I> {
 
 /// The following methods work only with (trait) associated term projections.
 impl<I: Interner> AliasTerm<I> {
-    pub fn self_ty(self) -> ty::Ty<I> {
+    pub fn self_ty(self) -> Ty<I> {
         self.args.type_at(0)
     }
 
-    pub fn with_replaced_self_ty(self, interner: I, self_ty: ty::Ty<I>) -> Self {
+    pub fn with_replaced_self_ty(self, interner: I, self_ty: Ty<I>) -> Self {
         AliasTerm::new(
             interner,
             self.def_id,
@@ -786,11 +786,11 @@ pub struct ProjectionPredicate<I: Interner> {
 impl<I: Interner> Eq for ProjectionPredicate<I> {}
 
 impl<I: Interner> ProjectionPredicate<I> {
-    pub fn self_ty(self) -> ty::Ty<I> {
+    pub fn self_ty(self) -> Ty<I> {
         self.projection_term.self_ty()
     }
 
-    pub fn with_replaced_self_ty(self, interner: I, self_ty: ty::Ty<I>) -> ProjectionPredicate<I> {
+    pub fn with_replaced_self_ty(self, interner: I, self_ty: Ty<I>) -> ProjectionPredicate<I> {
         Self {
             projection_term: self.projection_term.with_replaced_self_ty(interner, self_ty),
             ..self
@@ -849,11 +849,11 @@ pub struct NormalizesTo<I: Interner> {
 impl<I: Interner> Eq for NormalizesTo<I> {}
 
 impl<I: Interner> NormalizesTo<I> {
-    pub fn self_ty(self) -> ty::Ty<I> {
+    pub fn self_ty(self) -> Ty<I> {
         self.alias.self_ty()
     }
 
-    pub fn with_replaced_self_ty(self, interner: I, self_ty: ty::Ty<I>) -> NormalizesTo<I> {
+    pub fn with_replaced_self_ty(self, interner: I, self_ty: Ty<I>) -> NormalizesTo<I> {
         Self { alias: self.alias.with_replaced_self_ty(interner, self_ty), ..self }
     }
 
@@ -886,11 +886,11 @@ pub struct HostEffectPredicate<I: Interner> {
 impl<I: Interner> Eq for HostEffectPredicate<I> {}
 
 impl<I: Interner> HostEffectPredicate<I> {
-    pub fn self_ty(self) -> ty::Ty<I> {
+    pub fn self_ty(self) -> Ty<I> {
         self.trait_ref.self_ty()
     }
 
-    pub fn with_replaced_self_ty(self, interner: I, self_ty: ty::Ty<I>) -> Self {
+    pub fn with_replaced_self_ty(self, interner: I, self_ty: Ty<I>) -> Self {
         Self { trait_ref: self.trait_ref.with_replaced_self_ty(interner, self_ty), ..self }
     }
 
@@ -905,7 +905,7 @@ impl<I: Interner> ty::Binder<I, HostEffectPredicate<I>> {
         self.skip_binder().def_id()
     }
 
-    pub fn self_ty(self) -> ty::Binder<I, ty::Ty<I>> {
+    pub fn self_ty(self) -> ty::Binder<I, Ty<I>> {
         self.map_bound(|trait_ref| trait_ref.self_ty())
     }
 
@@ -926,8 +926,8 @@ impl<I: Interner> ty::Binder<I, HostEffectPredicate<I>> {
 )]
 pub struct SubtypePredicate<I: Interner> {
     pub a_is_expected: bool,
-    pub a: ty::Ty<I>,
-    pub b: ty::Ty<I>,
+    pub a: Ty<I>,
+    pub b: Ty<I>,
 }
 
 impl<I: Interner> Eq for SubtypePredicate<I> {}
@@ -940,8 +940,8 @@ impl<I: Interner> Eq for SubtypePredicate<I> {}
     derive(Decodable_NoContext, Encodable_NoContext, HashStable_NoContext)
 )]
 pub struct CoercePredicate<I: Interner> {
-    pub a: ty::Ty<I>,
-    pub b: ty::Ty<I>,
+    pub a: Ty<I>,
+    pub b: Ty<I>,
 }
 
 impl<I: Interner> Eq for CoercePredicate<I> {}

@@ -26,8 +26,8 @@ use crate::infer::canonical::Canonical;
 use crate::traits::ObligationCause;
 use crate::ty::InferTy::*;
 use crate::ty::{
-    self, AdtDef, Discr, GenericArg, GenericArgs, GenericArgsRef, List, ParamEnv, Region, Ty,
-    TyCtxt, TypeFlags, TypeSuperVisitable, TypeVisitable, TypeVisitor, UintTy,
+    self, AdtDef, Discr, GenericArg, GenericArgs, GenericArgsRef, List, ParamEnv, Region, TyCtxt,
+    TypeFlags, TypeSuperVisitable, TypeVisitable, TypeVisitor, UintTy,
 };
 
 // Re-export and re-parameterize some `I = TyCtxt<'tcx>` types here
@@ -362,14 +362,6 @@ impl ParamConst {
 
 /// Constructors for `Ty`
 impl<'tcx> Ty<'tcx> {
-    /// Avoid using this in favour of more specific `new_*` methods, where possible.
-    /// The more specific methods will often optimize their creation.
-    #[allow(rustc::usage_of_ty_tykind)]
-    #[inline]
-    fn new(tcx: TyCtxt<'tcx>, st: TyKind<'tcx>) -> Ty<'tcx> {
-        tcx.mk_ty_from_kind(st)
-    }
-
     #[inline]
     pub fn new_infer(tcx: TyCtxt<'tcx>, infer: ty::InferTy) -> Ty<'tcx> {
         Ty::new(tcx, TyKind::Infer(infer))
@@ -495,9 +487,9 @@ impl<'tcx> Ty<'tcx> {
     }
 
     /// Constructs a `TyKind::Error` type with current `ErrorGuaranteed`
-    pub fn new_error(tcx: TyCtxt<'tcx>, guar: ErrorGuaranteed) -> Ty<'tcx> {
-        Ty::new(tcx, Error(guar))
-    }
+    // pub fn new_error(tcx: TyCtxt<'tcx>, guar: ErrorGuaranteed) -> Ty<'tcx> {
+    //     Ty::new(tcx, Error(guar))
+    // }
 
     /// Constructs a `TyKind::Error` type and registers a `span_delayed_bug` to ensure it gets used.
     #[track_caller]
@@ -891,200 +883,6 @@ impl<'tcx> Ty<'tcx> {
     }
 }
 
-impl<'tcx> rustc_type_ir::inherent::Ty<TyCtxt<'tcx>> for Ty<'tcx> {
-    fn new_bool(tcx: TyCtxt<'tcx>) -> Self {
-        tcx.types.bool
-    }
-
-    fn new_u8(tcx: TyCtxt<'tcx>) -> Self {
-        tcx.types.u8
-    }
-
-    fn new_infer(tcx: TyCtxt<'tcx>, infer: ty::InferTy) -> Self {
-        Ty::new_infer(tcx, infer)
-    }
-
-    fn new_var(tcx: TyCtxt<'tcx>, vid: ty::TyVid) -> Self {
-        Ty::new_var(tcx, vid)
-    }
-
-    fn new_param(tcx: TyCtxt<'tcx>, param: ty::ParamTy) -> Self {
-        Ty::new_param(tcx, param.index, param.name)
-    }
-
-    fn new_placeholder(tcx: TyCtxt<'tcx>, placeholder: ty::PlaceholderType<'tcx>) -> Self {
-        Ty::new_placeholder(tcx, placeholder)
-    }
-
-    fn new_bound(
-        interner: TyCtxt<'tcx>,
-        debruijn: ty::DebruijnIndex,
-        var: ty::BoundTy<'tcx>,
-    ) -> Self {
-        Ty::new_bound(interner, debruijn, var)
-    }
-
-    fn new_anon_bound(tcx: TyCtxt<'tcx>, debruijn: ty::DebruijnIndex, var: ty::BoundVar) -> Self {
-        Ty::new_bound(tcx, debruijn, ty::BoundTy { var, kind: ty::BoundTyKind::Anon })
-    }
-
-    fn new_canonical_bound(tcx: TyCtxt<'tcx>, var: ty::BoundVar) -> Self {
-        Ty::new_canonical_bound(tcx, var)
-    }
-
-    fn new_alias(
-        interner: TyCtxt<'tcx>,
-        kind: ty::AliasTyKind,
-        alias_ty: ty::AliasTy<'tcx>,
-    ) -> Self {
-        Ty::new_alias(interner, kind, alias_ty)
-    }
-
-    fn new_error(interner: TyCtxt<'tcx>, guar: ErrorGuaranteed) -> Self {
-        Ty::new_error(interner, guar)
-    }
-
-    fn new_adt(
-        interner: TyCtxt<'tcx>,
-        adt_def: ty::AdtDef<'tcx>,
-        args: ty::GenericArgsRef<'tcx>,
-    ) -> Self {
-        Ty::new_adt(interner, adt_def, args)
-    }
-
-    fn new_foreign(interner: TyCtxt<'tcx>, def_id: DefId) -> Self {
-        Ty::new_foreign(interner, def_id)
-    }
-
-    fn new_dynamic(
-        interner: TyCtxt<'tcx>,
-        preds: &'tcx List<ty::PolyExistentialPredicate<'tcx>>,
-        region: ty::Region<'tcx>,
-    ) -> Self {
-        Ty::new_dynamic(interner, preds, region)
-    }
-
-    fn new_coroutine(
-        interner: TyCtxt<'tcx>,
-        def_id: DefId,
-        args: ty::GenericArgsRef<'tcx>,
-    ) -> Self {
-        Ty::new_coroutine(interner, def_id, args)
-    }
-
-    fn new_coroutine_closure(
-        interner: TyCtxt<'tcx>,
-        def_id: DefId,
-        args: ty::GenericArgsRef<'tcx>,
-    ) -> Self {
-        Ty::new_coroutine_closure(interner, def_id, args)
-    }
-
-    fn new_closure(interner: TyCtxt<'tcx>, def_id: DefId, args: ty::GenericArgsRef<'tcx>) -> Self {
-        Ty::new_closure(interner, def_id, args)
-    }
-
-    fn new_coroutine_witness(
-        interner: TyCtxt<'tcx>,
-        def_id: DefId,
-        args: ty::GenericArgsRef<'tcx>,
-    ) -> Self {
-        Ty::new_coroutine_witness(interner, def_id, args)
-    }
-
-    fn new_coroutine_witness_for_coroutine(
-        interner: TyCtxt<'tcx>,
-        def_id: DefId,
-        coroutine_args: ty::GenericArgsRef<'tcx>,
-    ) -> Self {
-        Ty::new_coroutine_witness_for_coroutine(interner, def_id, coroutine_args)
-    }
-
-    fn new_ptr(interner: TyCtxt<'tcx>, ty: Self, mutbl: hir::Mutability) -> Self {
-        Ty::new_ptr(interner, ty, mutbl)
-    }
-
-    fn new_ref(
-        interner: TyCtxt<'tcx>,
-        region: ty::Region<'tcx>,
-        ty: Self,
-        mutbl: hir::Mutability,
-    ) -> Self {
-        Ty::new_ref(interner, region, ty, mutbl)
-    }
-
-    fn new_array_with_const_len(interner: TyCtxt<'tcx>, ty: Self, len: ty::Const<'tcx>) -> Self {
-        Ty::new_array_with_const_len(interner, ty, len)
-    }
-
-    fn new_slice(interner: TyCtxt<'tcx>, ty: Self) -> Self {
-        Ty::new_slice(interner, ty)
-    }
-
-    fn new_tup(interner: TyCtxt<'tcx>, tys: &[Ty<'tcx>]) -> Self {
-        Ty::new_tup(interner, tys)
-    }
-
-    fn new_tup_from_iter<It, T>(interner: TyCtxt<'tcx>, iter: It) -> T::Output
-    where
-        It: Iterator<Item = T>,
-        T: CollectAndApply<Self, Self>,
-    {
-        Ty::new_tup_from_iter(interner, iter)
-    }
-
-    fn tuple_fields(self) -> &'tcx ty::List<Ty<'tcx>> {
-        self.tuple_fields()
-    }
-
-    fn to_opt_closure_kind(self) -> Option<ty::ClosureKind> {
-        self.to_opt_closure_kind()
-    }
-
-    fn from_closure_kind(interner: TyCtxt<'tcx>, kind: ty::ClosureKind) -> Self {
-        Ty::from_closure_kind(interner, kind)
-    }
-
-    fn from_coroutine_closure_kind(
-        interner: TyCtxt<'tcx>,
-        kind: rustc_type_ir::ClosureKind,
-    ) -> Self {
-        Ty::from_coroutine_closure_kind(interner, kind)
-    }
-
-    fn new_fn_def(interner: TyCtxt<'tcx>, def_id: DefId, args: ty::GenericArgsRef<'tcx>) -> Self {
-        Ty::new_fn_def(interner, def_id, args)
-    }
-
-    fn new_fn_ptr(interner: TyCtxt<'tcx>, sig: ty::Binder<'tcx, ty::FnSig<'tcx>>) -> Self {
-        Ty::new_fn_ptr(interner, sig)
-    }
-
-    fn new_pat(interner: TyCtxt<'tcx>, ty: Self, pat: ty::Pattern<'tcx>) -> Self {
-        Ty::new_pat(interner, ty, pat)
-    }
-
-    fn new_unsafe_binder(interner: TyCtxt<'tcx>, ty: ty::Binder<'tcx, Ty<'tcx>>) -> Self {
-        Ty::new_unsafe_binder(interner, ty)
-    }
-
-    fn new_unit(interner: TyCtxt<'tcx>) -> Self {
-        interner.types.unit
-    }
-
-    fn new_usize(interner: TyCtxt<'tcx>) -> Self {
-        interner.types.usize
-    }
-
-    fn discriminant_ty(self, interner: TyCtxt<'tcx>) -> Ty<'tcx> {
-        self.discriminant_ty(interner)
-    }
-
-    fn has_unsafe_fields(self) -> bool {
-        Ty::has_unsafe_fields(self)
-    }
-}
-
 /// Type utilities
 impl<'tcx> Ty<'tcx> {
     // It would be nicer if this returned the value instead of a reference,
@@ -1097,10 +895,10 @@ impl<'tcx> Ty<'tcx> {
     }
 
     // FIXME(compiler-errors): Think about removing this.
-    #[inline(always)]
-    pub fn flags(self) -> TypeFlags {
-        self.0.0.flags
-    }
+    // #[inline(always)]
+    // pub fn flags(self) -> TypeFlags {
+    //     self.0.0.flags
+    // }
 
     #[inline]
     pub fn is_unit(self) -> bool {
@@ -1376,17 +1174,6 @@ impl<'tcx> Ty<'tcx> {
         )
     }
 
-    /// Returns `true` if this type is a floating point type.
-    #[inline]
-    pub fn is_floating_point(self) -> bool {
-        matches!(self.kind(), Float(_) | Infer(FloatVar(_)))
-    }
-
-    #[inline]
-    pub fn is_trait(self) -> bool {
-        matches!(self.kind(), Dynamic(_, _))
-    }
-
     #[inline]
     pub fn is_enum(self) -> bool {
         matches!(self.kind(), Adt(adt_def, _) if adt_def.is_enum())
@@ -1410,11 +1197,6 @@ impl<'tcx> Ty<'tcx> {
     #[inline]
     pub fn is_coroutine_closure(self) -> bool {
         matches!(self.kind(), CoroutineClosure(..))
-    }
-
-    #[inline]
-    pub fn is_integral(self) -> bool {
-        matches!(self.kind(), Infer(IntVar(_)) | Int(_) | Uint(_))
     }
 
     #[inline]
@@ -1534,11 +1316,6 @@ impl<'tcx> Ty<'tcx> {
             Array(ty, _) | Slice(ty) => Some(*ty),
             _ => None,
         }
-    }
-
-    #[tracing::instrument(level = "trace", skip(tcx))]
-    pub fn fn_sig(self, tcx: TyCtxt<'tcx>) -> PolyFnSig<'tcx> {
-        self.kind().fn_sig(tcx)
     }
 
     #[inline]

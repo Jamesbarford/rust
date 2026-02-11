@@ -60,6 +60,7 @@ pub use rustc_type_ir::fast_reject::DeepRejectCtxt;
     rustc::non_glob_import_of_type_ir_inherent
 )]
 use rustc_type_ir::inherent;
+use rustc_type_ir::inherent::IntoKind;
 pub use rustc_type_ir::relate::VarianceDiagInfo;
 pub use rustc_type_ir::solve::{CandidatePreferenceMode, SizedTraitKind};
 pub use rustc_type_ir::*;
@@ -104,7 +105,7 @@ pub use self::sty::{
     AliasTy, Article, Binder, BoundConst, BoundRegion, BoundRegionKind, BoundTy, BoundTyKind,
     BoundVariableKind, CanonicalPolyFnSig, CoroutineArgsExt, EarlyBinder, FnSig, InlineConstArgs,
     InlineConstArgsParts, ParamConst, ParamTy, PlaceholderConst, PlaceholderRegion,
-    PlaceholderType, PolyFnSig, TyKind, TypeAndMut, TypingMode, UpvarArgs,
+    PlaceholderType, PolyFnSig, Ty, TyKind, TypeAndMut, TypingMode, UpvarArgs,
 };
 pub use self::trait_def::TraitDef;
 pub use self::typeck_results::{
@@ -457,24 +458,6 @@ pub struct CReaderCacheKey {
 //#[rustc_pass_by_value]
 //pub struct Ty<'tcx>(Interned<'tcx, WithCachedTypeInfo<TyKind<'tcx>>>);
 
-impl<'tcx> rustc_type_ir::inherent::IntoKind for Ty<'tcx> {
-    type Kind = TyKind<'tcx>;
-
-    fn kind(self) -> TyKind<'tcx> {
-        *self.kind()
-    }
-}
-
-impl<'tcx> rustc_type_ir::Flags for Ty<'tcx> {
-    fn flags(&self) -> TypeFlags {
-        self.0.flags
-    }
-
-    fn outer_exclusive_binder(&self) -> DebruijnIndex {
-        self.0.outer_exclusive_binder
-    }
-}
-
 /// The crate outlives map is computed during typeck and contains the
 /// outlives of every item in the local crate. You should not use it
 /// directly, because to do so will make your pass dependent on the
@@ -594,7 +577,7 @@ impl<'tcx> Term<'tcx> {
         // and this is just going in the other direction.
         unsafe {
             match self.ptr.addr().get() & TAG_MASK {
-                TYPE_TAG => TermKind::Ty(Ty(Interned::new_unchecked(
+                TYPE_TAG => TermKind::Ty(Ty::from_interned(Interned::new_unchecked(
                     ptr.cast::<WithCachedTypeInfo<ty::TyKind<'tcx>>>().as_ref(),
                 ))),
                 CONST_TAG => TermKind::Const(ty::Const(Interned::new_unchecked(
@@ -630,7 +613,7 @@ impl<'tcx> Term<'tcx> {
 
     pub fn to_alias_term(self) -> Option<AliasTerm<'tcx>> {
         match self.kind() {
-            TermKind::Ty(ty) => match *ty.kind() {
+            TermKind::Ty(ty) => match ty.kind() {
                 ty::Alias(_kind, alias_ty) => Some(alias_ty.into()),
                 _ => None,
             },
@@ -2368,7 +2351,7 @@ fn typetree_from_ty_impl_inner<'tcx>(
     if ty.is_slice() {
         if let ty::Slice(element_ty) = ty.kind() {
             let element_tree =
-                typetree_from_ty_impl_inner(tcx, *element_ty, depth + 1, visited, false);
+                typetree_from_ty_impl_inner(tcx, element_ty, depth + 1, visited, false);
             return element_tree;
         }
     }

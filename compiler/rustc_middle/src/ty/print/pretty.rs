@@ -17,6 +17,7 @@ use rustc_hir::limit::Limit;
 use rustc_macros::{Lift, extension};
 use rustc_session::cstore::{ExternCrate, ExternCrateSource};
 use rustc_span::{Ident, RemapPathScopeComponents, Symbol, kw, sym};
+use rustc_type_ir::inherent::{GenericArgs as _, IntoKind as _};
 use rustc_type_ir::{Upcast as _, elaborate};
 use smallvec::SmallVec;
 
@@ -1156,7 +1157,7 @@ pub trait PrettyPrinter<'tcx>: Printer<'tcx> + fmt::Write {
 
                         write!(p, ")")?;
                         if let Some(ty) = return_ty.skip_binder().as_type() {
-                            if !ty.is_unit() {
+                            if !matches!(ty.kind(), ty::Tuple(tys) if tys.is_empty()) {
                                 write!(p, " -> ")?;
                                 return_ty.print(p)?;
                             }
@@ -1175,7 +1176,7 @@ pub trait PrettyPrinter<'tcx>: Printer<'tcx> + fmt::Write {
                         trait_ref: ty::TraitRef::new(
                             tcx,
                             trait_def_id,
-                            [self_ty, Ty::new_tup(tcx, args)],
+                            [self_ty, ty::Ty::new_tup(tcx, args)],
                         ),
                     }),
                     FxIndexMap::default(),
@@ -1520,7 +1521,7 @@ pub trait PrettyPrinter<'tcx>: Printer<'tcx> + fmt::Write {
             write!(self, "...")?;
         }
         write!(self, ")")?;
-        if !output.is_unit() {
+        if !matches!(output.kind(), ty::Tuple(tys) if tys.is_empty()) {
             write!(self, " -> ")?;
             output.print(self)?;
         }
@@ -2029,7 +2030,7 @@ pub trait PrettyPrinter<'tcx>: Printer<'tcx> + fmt::Write {
             }
             write!(p, ")")?;
 
-            if !sig.output().is_unit() {
+            if !matches!(sig.output().kind(), ty::Tuple(tys) if tys.is_empty()) {
                 write!(p, " -> ")?;
                 sig.output().print(p)?;
             }

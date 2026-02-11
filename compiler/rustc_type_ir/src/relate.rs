@@ -7,12 +7,19 @@ use tracing::{instrument, trace};
 use crate::error::{ExpectedFound, TypeError};
 use crate::fold::TypeFoldable;
 use crate::inherent::*;
-use crate::{self as ty, Interner};
+use crate::{self as ty, Interner, Ty};
 
 pub mod combine;
 pub mod solver_relating;
 
 pub type RelateResult<I, T> = Result<T, TypeError<I>>;
+
+impl<I: Interner> Relate<I> for Ty<I> {
+    #[inline]
+    fn relate<R: TypeRelation<I>>(relation: &mut R, a: Ty<I>, b: Ty<I>) -> RelateResult<I, Ty<I>> {
+        relation.tys(a, b)
+    }
+}
 
 /// Whether aliases should be related structurally or not. Used
 /// to adjust the behavior of generalization and combine.
@@ -44,7 +51,7 @@ pub enum VarianceDiagInfo<I: Interner> {
     Invariant {
         /// The generic type containing the generic parameter
         /// that changes the variance (e.g. `*mut T`, `MyStruct<T>`)
-        ty: ty::Ty<I>,
+        ty: Ty<I>,
         /// The index of the generic parameter being used
         /// (e.g. `0` for `*mut T`, `1` for `MyStruct<'CovariantParam, 'InvariantParam>`)
         param_index: u32,
@@ -75,13 +82,13 @@ pub trait TypeRelation<I: Interner>: Sized {
 
     fn relate_ty_args(
         &mut self,
-        a_ty: ty::Ty<I>,
-        b_ty: ty::Ty<I>,
+        a_ty: Ty<I>,
+        b_ty: Ty<I>,
         ty_def_id: I::DefId,
         a_arg: I::GenericArgs,
         b_arg: I::GenericArgs,
-        mk: impl FnOnce(I::GenericArgs) -> ty::Ty<I>,
-    ) -> RelateResult<I, ty::Ty<I>>;
+        mk: impl FnOnce(I::GenericArgs) -> Ty<I>,
+    ) -> RelateResult<I, Ty<I>>;
 
     /// Switch variance for the purpose of relating `a` and `b`.
     fn relate_with_variance<T: Relate<I>>(
@@ -98,7 +105,7 @@ pub trait TypeRelation<I: Interner>: Sized {
     // additional hooks for other types in the future if needed
     // without making older code, which called `relate`, obsolete.
 
-    fn tys(&mut self, a: ty::Ty<I>, b: ty::Ty<I>) -> RelateResult<I, ty::Ty<I>>;
+    fn tys(&mut self, a: Ty<I>, b: Ty<I>) -> RelateResult<I, Ty<I>>;
 
     fn regions(&mut self, a: I::Region, b: I::Region) -> RelateResult<I, I::Region>;
 
@@ -332,9 +339,9 @@ impl<I: Interner> Relate<I> for ty::ExistentialTraitRef<I> {
 #[instrument(level = "trace", skip(relation), ret)]
 pub fn structurally_relate_tys<I: Interner, R: TypeRelation<I>>(
     relation: &mut R,
-    a: ty::Ty<I>,
-    b: ty::Ty<I>,
-) -> RelateResult<I, ty::Ty<I>> {
+    a: Ty<I>,
+    b: Ty<I>,
+) -> RelateResult<I, Ty<I>> {
     let cx = relation.cx();
     match (a.kind(), b.kind()) {
         (ty::Infer(_), _) | (_, ty::Infer(_)) => {

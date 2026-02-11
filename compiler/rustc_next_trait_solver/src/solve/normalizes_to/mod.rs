@@ -7,7 +7,7 @@ use rustc_type_ir::fast_reject::DeepRejectCtxt;
 use rustc_type_ir::inherent::*;
 use rustc_type_ir::lang_items::{SolverAdtLangItem, SolverLangItem, SolverTraitLangItem};
 use rustc_type_ir::solve::SizedTraitKind;
-use rustc_type_ir::{self as ty, Interner, NormalizesTo, PredicateKind, Upcast as _};
+use rustc_type_ir::{self as ty, Interner, NormalizesTo, PredicateKind, Ty, Upcast as _};
 use tracing::instrument;
 
 use crate::delegate::SolverDelegate;
@@ -125,7 +125,7 @@ where
     D: SolverDelegate<Interner = I>,
     I: Interner,
 {
-    fn self_ty(self) -> ty::Ty<I> {
+    fn self_ty(self) -> Ty<I> {
         self.self_ty()
     }
 
@@ -133,7 +133,7 @@ where
         self.alias.trait_ref(cx)
     }
 
-    fn with_replaced_self_ty(self, cx: I, self_ty: ty::Ty<I>) -> Self {
+    fn with_replaced_self_ty(self, cx: I, self_ty: Ty<I>) -> Self {
         self.with_replaced_self_ty(cx, self_ty)
     }
 

@@ -224,6 +224,10 @@ impl<'tcx> rustc_type_ir::inherent::AdtDef<TyCtxt<'tcx>> for AdtDef<'tcx> {
         self.is_manually_drop()
     }
 
+    fn has_unsafe_fields(self) -> bool {
+        self.all_fields().any(|field| field.safety.is_unsafe())
+    }
+
     fn all_field_tys(
         self,
         tcx: TyCtxt<'tcx>,

@@ -13,7 +13,7 @@ use crate::lang_items::{SolverAdtLangItem, SolverLangItem, SolverTraitLangItem};
 use crate::relate::Relate;
 use crate::solve::{CanonicalInput, Certainty, ExternalConstraintsData, QueryResult, inspect};
 use crate::visit::{Flags, TypeVisitable};
-use crate::{self as ty, CanonicalParamEnvCacheEntry, search_graph};
+use crate::{self as ty, CanonicalParamEnvCacheEntry, Ty, search_graph};
 
 #[cfg_attr(feature = "nightly", rustc_diagnostic_item = "type_ir_interner")]
 pub trait Interner:
@@ -59,7 +59,7 @@ pub trait Interner:
     type GenericArgs: GenericArgs<Self>;
     type GenericArgsSlice: Copy + Debug + Hash + Eq + SliceLike<Item = Self::GenericArg>;
     type GenericArg: GenericArg<Self>;
-    type Term: Term<Self>;
+    type Term: Term<Self> + From<Ty<Self>>;
 
     type BoundVarKinds: Copy
         + Debug
@@ -73,10 +73,10 @@ pub trait Interner:
         + Hash
         + Eq
         + TypeFoldable<Self>
-        + SliceLike<Item = (ty::OpaqueTypeKey<Self>, ty::Ty<Self>)>;
+        + SliceLike<Item = (ty::OpaqueTypeKey<Self>, Ty<Self>)>;
     fn mk_predefined_opaques_in_body(
         self,
-        data: &[(ty::OpaqueTypeKey<Self>, ty::Ty<Self>)],
+        data: &[(ty::OpaqueTypeKey<Self>, Ty<Self>)],
     ) -> Self::PredefinedOpaques;
 
     type LocalDefIds: Copy
@@ -121,12 +121,12 @@ pub trait Interner:
 
     // Kinds of tys
     type Tys: Tys<Self>;
-    type FnInputTys: Copy + Debug + Hash + Eq + SliceLike<Item = ty::Ty<Self>> + TypeVisitable<Self>;
+    type FnInputTys: Copy + Debug + Hash + Eq + SliceLike<Item = Ty<Self>> + TypeVisitable<Self>;
     type ParamTy: ParamLike;
     type Symbol: Symbol<Self>;
 
     // Things stored inside of tys
-    type ErrorGuaranteed: Copy + Debug + Hash + Eq;
+    type ErrorGuaranteed: Copy + Debug + Hash + Eq + TypeVisitable<Self>;
     type BoundExistentialPredicates: BoundExistentialPredicates<Self>;
     type AllocId: Copy + Debug + Hash + Eq;
     type Pat: Copy
@@ -173,7 +173,7 @@ pub trait Interner:
     type Clause: Clause<Self>;
     type Clauses: Clauses<Self>;
 
-    type Interned<T: Copy + Clone>: Debug;
+    type Interned<T: Copy + Clone>: Copy + Clone + Debug + Hash + Eq + PartialEq + Deref<Target = T>;
 
     fn with_global_cache<R>(self, f: impl FnOnce(&mut search_graph::GlobalCache<Self>) -> R) -> R;
 
@@ -202,11 +202,9 @@ pub trait Interner:
         def_id: Self::DefId,
     ) -> Option<Self::VariancesOf>;
 
-    fn type_of(self, def_id: Self::DefId) -> ty::EarlyBinder<Self, ty::Ty<Self>>;
-    fn type_of_opaque_hir_typeck(
-        self,
-        def_id: Self::LocalDefId,
-    ) -> ty::EarlyBinder<Self, ty::Ty<Self>>;
+    fn type_of(self, def_id: Self::DefId) -> ty::EarlyBinder<Self, Ty<Self>>;
+    fn type_of_opaque_hir_typeck(self, def_id: Self::LocalDefId)
+    -> ty::EarlyBinder<Self, Ty<Self>>;
     fn const_of_item(self, def_id: Self::DefId) -> ty::EarlyBinder<Self, Self::Const>;
     fn anon_const_kind(self, def_id: Self::DefId) -> ty::AnonConstKind;
 
@@ -241,7 +239,17 @@ pub trait Interner:
     fn mk_type_list_from_iter<I, T>(self, args: I) -> T::Output
     where
         I: Iterator<Item = T>,
-        T: CollectAndApply<ty::Ty<Self>, Self::Tys>;
+        T: CollectAndApply<Ty<Self>, Self::Tys>;
+
+    fn mk_ty_from_kind(self, kind: ty::TyKind<Self>) -> Ty<Self>;
+
+    fn mk_coroutine_witness_for_coroutine(
+        self,
+        def_id: Self::CoroutineId,
+        args: Self::GenericArgs,
+    ) -> Ty<Self>;
+
+    fn ty_discriminant_ty(self, ty: Ty<Self>) -> Ty<Self>;
 
     fn parent(self, def_id: Self::DefId) -> Self::DefId;
 
@@ -354,7 +362,7 @@ pub trait Interner:
     fn for_each_relevant_impl(
         self,
         trait_def_id: Self::TraitId,
-        self_ty: ty::Ty<Self>,
+        self_ty: Ty<Self>,
         f: impl FnMut(Self::ImplId),
     );
     fn for_each_blanket_impl(self, trait_def_id: Self::TraitId, f: impl FnMut(Self::ImplId));
