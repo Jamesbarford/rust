@@ -19,15 +19,6 @@ use crate::ty::{
     TypeSuperVisitable, TypeVisitable, TypeVisitor,
 };
 
-impl IntoDiagArg for Ty<'_> {
-    fn into_diag_arg(self, path: &mut Option<std::path::PathBuf>) -> rustc_errors::DiagArgValue {
-        ty::tls::with(|tcx| {
-            let ty = tcx.short_string(self, path);
-            DiagArgValue::Str(std::borrow::Cow::Owned(ty))
-        })
-    }
-}
-
 impl IntoDiagArg for Instance<'_> {
     fn into_diag_arg(self, path: &mut Option<std::path::PathBuf>) -> rustc_errors::DiagArgValue {
         ty::tls::with(|tcx| {

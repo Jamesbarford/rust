@@ -6,16 +6,12 @@
 //! The functionality in here is shared between persisting to crate metadata and
 //! persisting to incr. comp. caches.
 
-use std::hash::Hash;
-use std::intrinsics;
-use std::marker::{DiscriminantKind, PointeeSized};
-
 use rustc_abi::FieldIdx;
-use rustc_data_structures::fx::FxHashMap;
 use rustc_hir::def_id::LocalDefId;
 use rustc_serialize::{Decodable, Encodable};
+use rustc_span::Span;
 use rustc_span::source_map::Spanned;
-use rustc_span::{Span, SpanDecoder, SpanEncoder};
+use rustc_type_ir::codec as ir_codec;
 
 use crate::arena::ArenaAllocatable;
 use crate::infer::canonical::{CanonicalVarKind, CanonicalVarKinds};
@@ -25,66 +21,13 @@ use crate::mir::{self};
 use crate::traits;
 use crate::ty::{self, AdtDef, GenericArgsRef, Ty, TyCtxt};
 
-/// The shorthand encoding uses an enum's variant index `usize`
-/// and is offset by this value so it never matches a real variant.
-/// This offset is also chosen so that the first byte is never < 0x80.
-pub const SHORTHAND_OFFSET: usize = 0x80;
+pub trait TyEncoder<'tcx>: ir_codec::TyEncoder<'tcx, Interner = TyCtxt<'tcx>> {}
+impl<'tcx, T> TyEncoder<'tcx> for T where T: ir_codec::TyEncoder<'tcx, Interner = TyCtxt<'tcx>> {}
 
-pub trait TyEncoder<'tcx>: SpanEncoder {
-    const CLEAR_CROSS_CRATE: bool;
+pub trait TyDecoder<'tcx>: ir_codec::TyDecoder<'tcx, Interner = TyCtxt<'tcx>> {}
+impl<'tcx, T> TyDecoder<'tcx> for T where T: ir_codec::TyDecoder<'tcx, Interner = TyCtxt<'tcx>> {}
 
-    fn position(&self) -> usize;
-
-    fn type_shorthands(&mut self) -> &mut FxHashMap<Ty<'tcx>, usize>;
-
-    fn predicate_shorthands(&mut self) -> &mut FxHashMap<ty::PredicateKind<'tcx>, usize>;
-
-    fn encode_alloc_id(&mut self, alloc_id: &AllocId);
-}
-
-pub trait TyDecoder<'tcx>: SpanDecoder {
-    const CLEAR_CROSS_CRATE: bool;
-
-    fn interner(&self) -> TyCtxt<'tcx>;
-
-    fn cached_ty_for_shorthand<F>(&mut self, shorthand: usize, or_insert_with: F) -> Ty<'tcx>
-    where
-        F: FnOnce(&mut Self) -> Ty<'tcx>;
-
-    fn with_position<F, R>(&mut self, pos: usize, f: F) -> R
-    where
-        F: FnOnce(&mut Self) -> R;
-
-    fn positioned_at_shorthand(&self) -> bool {
-        (self.peek_byte() & (SHORTHAND_OFFSET as u8)) != 0
-    }
-
-    fn decode_alloc_id(&mut self) -> AllocId;
-}
-
-pub trait EncodableWithShorthand<'tcx, E: TyEncoder<'tcx>>: Copy + Eq + Hash {
-    type Variant: Encodable<E>;
-    fn variant(&self) -> &Self::Variant;
-}
-
-#[allow(rustc::usage_of_ty_tykind)]
-impl<'tcx, E: TyEncoder<'tcx>> EncodableWithShorthand<'tcx, E> for Ty<'tcx> {
-    type Variant = ty::TyKind<'tcx>;
-
-    #[inline]
-    fn variant(&self) -> &Self::Variant {
-        self.kind()
-    }
-}
-
-impl<'tcx, E: TyEncoder<'tcx>> EncodableWithShorthand<'tcx, E> for ty::PredicateKind<'tcx> {
-    type Variant = ty::PredicateKind<'tcx>;
-
-    #[inline]
-    fn variant(&self) -> &Self::Variant {
-        self
-    }
-}
+pub use ir_codec::{EncodableWithShorthand, SHORTHAND_OFFSET, encode_with_shorthand};
 
 /// Trait for decoding to a reference.
 ///
@@ -96,53 +39,8 @@ impl<'tcx, E: TyEncoder<'tcx>> EncodableWithShorthand<'tcx, E> for ty::Predicate
 ///
 /// `Decodable` can still be implemented in cases where `Decodable` is required
 /// by a trait bound.
-pub trait RefDecodable<'tcx, D: TyDecoder<'tcx>>: PointeeSized {
+pub trait RefDecodable<'tcx, D: TyDecoder<'tcx>>: std::marker::PointeeSized {
     fn decode(d: &mut D) -> &'tcx Self;
-}
-
-/// Encode the given value or a previously cached shorthand.
-pub fn encode_with_shorthand<'tcx, E, T, M>(encoder: &mut E, value: &T, cache: M)
-where
-    E: TyEncoder<'tcx>,
-    M: for<'b> Fn(&'b mut E) -> &'b mut FxHashMap<T, usize>,
-    T: EncodableWithShorthand<'tcx, E>,
-    // The discriminant and shorthand must have the same size.
-    T::Variant: DiscriminantKind<Discriminant = isize>,
-{
-    let existing_shorthand = cache(encoder).get(value).copied();
-    if let Some(shorthand) = existing_shorthand {
-        encoder.emit_usize(shorthand);
-        return;
-    }
-
-    let variant = value.variant();
-
-    let start = encoder.position();
-    variant.encode(encoder);
-    let len = encoder.position() - start;
-
-    // The shorthand encoding uses the same usize as the
-    // discriminant, with an offset so they can't conflict.
-    let discriminant = intrinsics::discriminant_value(variant);
-    assert!(SHORTHAND_OFFSET > discriminant as usize);
-
-    let shorthand = start + SHORTHAND_OFFSET;
-
-    // Get the number of bits that leb128 could fit
-    // in the same space as the fully encoded type.
-    let leb128_bits = len * 7;
-
-    // Check that the shorthand is a not longer than the
-    // full encoding itself, i.e., it's an obvious win.
-    if leb128_bits >= 64 || (shorthand as u64) < (1 << leb128_bits) {
-        cache(encoder).insert(*value, shorthand);
-    }
-}
-
-impl<'tcx, E: TyEncoder<'tcx>> Encodable<E> for Ty<'tcx> {
-    fn encode(&self, e: &mut E) {
-        encode_with_shorthand(e, self, TyEncoder::type_shorthands);
-    }
 }
 
 impl<'tcx, E: TyEncoder<'tcx>> Encodable<E> for ty::Predicate<'tcx> {
@@ -229,25 +127,6 @@ fn decode_arena_allocable_slice<
     decoder: &mut D,
 ) -> &'tcx [T] {
     decoder.interner().arena.alloc_from_iter(<Vec<T> as Decodable<D>>::decode(decoder))
-}
-
-impl<'tcx, D: TyDecoder<'tcx>> Decodable<D> for Ty<'tcx> {
-    #[allow(rustc::usage_of_ty_tykind)]
-    fn decode(decoder: &mut D) -> Ty<'tcx> {
-        // Handle shorthands first, if we have a usize > 0x80.
-        if decoder.positioned_at_shorthand() {
-            let pos = decoder.read_usize();
-            assert!(pos >= SHORTHAND_OFFSET);
-            let shorthand = pos - SHORTHAND_OFFSET;
-
-            decoder.cached_ty_for_shorthand(shorthand, |decoder| {
-                decoder.with_position(shorthand, Ty::decode)
-            })
-        } else {
-            let tcx = decoder.interner();
-            tcx.mk_ty_from_kind(ty::TyKind::decode(decoder))
-        }
-    }
 }
 
 impl<'tcx, D: TyDecoder<'tcx>> Decodable<D> for ty::Predicate<'tcx> {

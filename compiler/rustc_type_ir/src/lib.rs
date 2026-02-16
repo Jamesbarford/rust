@@ -1,11 +1,22 @@
 #![cfg_attr(feature = "nightly", rustc_diagnostic_item = "type_ir")]
 // tidy-alphabetical-start
 #![allow(rustc::direct_use_of_rustc_type_ir)]
+#![allow(rustc::pass_by_value)]
 #![allow(rustc::usage_of_ty_tykind)]
 #![allow(rustc::usage_of_type_ir_inherent)]
 #![allow(rustc::usage_of_type_ir_traits)]
 #![cfg_attr(feature = "nightly", allow(internal_features))]
-#![cfg_attr(feature = "nightly", feature(associated_type_defaults, rustc_attrs, negative_impls))]
+#![cfg_attr(
+    feature = "nightly",
+    feature(
+        associated_type_defaults,
+        core_intrinsics,
+        discriminant_kind,
+        negative_impls,
+        rustc_attrs,
+        sized_hierarchy
+    )
+)]
 // tidy-alphabetical-end
 
 extern crate self as rustc_type_ir;
@@ -17,6 +28,8 @@ use std::hash::Hash;
 use rustc_macros::{Decodable, Encodable, HashStable_NoContext};
 
 // These modules are `pub` since they are not glob-imported.
+#[cfg(feature = "nightly")]
+pub mod codec;
 pub mod data_structures;
 pub mod elaborate;
 pub mod error;

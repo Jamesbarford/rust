@@ -173,7 +173,13 @@ pub trait Interner:
     type Clause: Clause<Self>;
     type Clauses: Clauses<Self>;
 
-    type Interned<T: Copy + Clone>: Copy + Clone + Debug + Hash + Eq + PartialEq + Deref<Target = T>;
+    type Interned<T: Copy + Clone + Debug + Hash + Eq + PartialEq>: Copy
+        + Clone
+        + Debug
+        + Hash
+        + Eq
+        + PartialEq
+        + Deref<Target = T>;
 
     fn with_global_cache<R>(self, f: impl FnOnce(&mut search_graph::GlobalCache<Self>) -> R) -> R;
 

@@ -377,10 +377,7 @@ impl<I: Interner> TypeVisitor<I> for ValidateBoundVars<I> {
 #[derive_where(Copy; I: Interner, T: Copy)]
 #[derive_where(Clone, PartialOrd, PartialEq, Hash, Debug; I: Interner, T)]
 #[derive(GenericTypeVisitable)]
-#[cfg_attr(
-    feature = "nightly",
-    derive(Encodable_NoContext, Decodable_NoContext, HashStable_NoContext)
-)]
+#[cfg_attr(feature = "nightly", derive(HashStable_NoContext))]
 pub struct EarlyBinder<I: Interner, T> {
     value: T,
     #[derive_where(skip(Debug))]
@@ -976,10 +973,7 @@ pub enum BoundVarIndexKind {
 #[derive_where(Copy; I: Interner, T: Copy)]
 #[derive_where(Clone, PartialOrd, PartialEq, Eq, Hash; I: Interner, T)]
 #[derive(TypeVisitable_Generic, TypeFoldable_Generic)]
-#[cfg_attr(
-    feature = "nightly",
-    derive(Encodable_NoContext, Decodable_NoContext, HashStable_NoContext)
-)]
+#[cfg_attr(feature = "nightly", derive(HashStable_NoContext))]
 pub struct Placeholder<I: Interner, T> {
     pub universe: UniverseIndex,
     pub bound: T,
@@ -1015,10 +1009,7 @@ where
 
 #[derive_where(Clone, Copy, PartialEq, Eq, Hash; I: Interner)]
 #[derive(Lift_Generic)]
-#[cfg_attr(
-    feature = "nightly",
-    derive(Encodable_NoContext, Decodable_NoContext, HashStable_NoContext)
-)]
+#[cfg_attr(feature = "nightly", derive(HashStable_NoContext))]
 
 pub enum BoundRegionKind<I: Interner> {
     /// An anonymous region parameter for a given fn (&T)
@@ -1078,10 +1069,7 @@ impl<I: Interner> BoundRegionKind<I> {
 
 #[derive_where(Clone, Copy, PartialEq, Eq, Debug, Hash; I: Interner)]
 #[derive(Lift_Generic)]
-#[cfg_attr(
-    feature = "nightly",
-    derive(Encodable_NoContext, Decodable_NoContext, HashStable_NoContext)
-)]
+#[cfg_attr(feature = "nightly", derive(HashStable_NoContext))]
 pub enum BoundTyKind<I: Interner> {
     Anon,
     Param(I::DefId),
@@ -1333,11 +1321,8 @@ impl<I: Interner> PlaceholderConst<I> {
 
 /// Use this rather than `TyKind`, whenever possible.
 #[derive_where(Copy; I: Interner, I::Interned<WithCachedTypeInfo<TyKind<I>>>: Copy)]
-#[derive_where(Clone, PartialEq, Eq, Hash, Debug; I: Interner)]
-#[cfg_attr(
-    feature = "nightly",
-    derive(Encodable_NoContext, Decodable_NoContext, HashStable_NoContext)
-)]
+#[derive_where(Clone, PartialEq, Eq, Hash; I: Interner)]
+#[cfg_attr(feature = "nightly", derive(HashStable_NoContext))]
 #[rustc_diagnostic_item = "Ty"]
 #[rustc_pass_by_value]
 #[rustc_has_incoherent_inherent_impls]
@@ -1355,11 +1340,21 @@ impl<I: Interner> Ty<I> {
     }
 
     #[inline]
+    #[allow(rustc::pass_by_value)]
     pub fn with_cached_type_info(&self) -> &WithCachedTypeInfo<TyKind<I>>
     where
         I::Interned<WithCachedTypeInfo<TyKind<I>>>: Deref<Target = WithCachedTypeInfo<TyKind<I>>>,
     {
         &*self.0
+    }
+}
+
+impl<I: Interner> fmt::Debug for Ty<I>
+where
+    I::Interned<WithCachedTypeInfo<TyKind<I>>>: Deref<Target = WithCachedTypeInfo<TyKind<I>>>,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&(*self).kind(), f)
     }
 }
 

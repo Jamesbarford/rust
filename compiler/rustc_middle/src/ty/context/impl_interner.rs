@@ -4,6 +4,7 @@ use std::fmt;
 
 use rustc_abi::ExternAbi;
 use rustc_data_structures::debug_assert_matches;
+use rustc_data_structures::intern::Interned;
 use rustc_errors::ErrorGuaranteed;
 use rustc_hir::def::{CtorKind, CtorOf, DefKind};
 use rustc_hir::def_id::{DefId, LocalDefId};
@@ -43,6 +44,8 @@ impl<'tcx> Interner for TyCtxt<'tcx> {
     type ImplId = DefId;
     type UnevaluatedConstId = DefId;
     type Span = Span;
+    type Interned<T: Copy + Clone + std::fmt::Debug + std::hash::Hash + Eq + PartialEq> =
+        Interned<'tcx, T>;
 
     type GenericArgs = ty::GenericArgsRef<'tcx>;
 
@@ -79,7 +82,6 @@ impl<'tcx> Interner for TyCtxt<'tcx> {
     fn with_cached_task<T>(self, task: impl FnOnce() -> T) -> (T, DepNodeIndex) {
         self.dep_graph.with_anon_task(self, crate::dep_graph::dep_kinds::TraitSelect, task)
     }
-    type Ty = Ty<'tcx>;
     type Tys = &'tcx List<Ty<'tcx>>;
 
     type FnInputTys = &'tcx [Ty<'tcx>];
@@ -290,6 +292,22 @@ impl<'tcx> Interner for TyCtxt<'tcx> {
         T: CollectAndApply<Ty<'tcx>, &'tcx List<Ty<'tcx>>>,
     {
         self.mk_type_list_from_iter(args)
+    }
+
+    fn mk_ty_from_kind(self, kind: ty::TyKind<'tcx>) -> Ty<'tcx> {
+        self.mk_ty_from_kind(kind)
+    }
+
+    fn mk_coroutine_witness_for_coroutine(
+        self,
+        def_id: DefId,
+        args: Self::GenericArgs,
+    ) -> Ty<'tcx> {
+        Ty::new_coroutine_witness_for_coroutine(self, def_id, args)
+    }
+
+    fn ty_discriminant_ty(self, ty: Ty<'tcx>) -> Ty<'tcx> {
+        ty.discriminant_ty(self)
     }
 
     fn parent(self, def_id: DefId) -> DefId {

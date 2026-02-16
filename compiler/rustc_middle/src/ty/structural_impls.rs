@@ -86,12 +86,6 @@ impl fmt::Debug for ty::LateParamRegionKind {
     }
 }
 
-impl<'tcx> fmt::Debug for Ty<'tcx> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        with_no_trimmed_paths!(fmt::Debug::fmt(self.kind(), f))
-    }
-}
-
 impl fmt::Debug for ty::ParamTy {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}/#{}", self.name, self.index)

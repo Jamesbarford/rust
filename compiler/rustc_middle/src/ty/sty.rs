@@ -8,7 +8,7 @@ use std::ops::{ControlFlow, Range};
 use hir::def::{CtorKind, DefKind};
 use rustc_abi::{FIRST_VARIANT, FieldIdx, ScalableElt, VariantIdx};
 use rustc_data_structures::debug_assert_matches;
-use rustc_errors::{ErrorGuaranteed, MultiSpan};
+use rustc_errors::MultiSpan;
 use rustc_hir as hir;
 use rustc_hir::LangItem;
 use rustc_hir::def_id::DefId;
@@ -27,7 +27,7 @@ use crate::traits::ObligationCause;
 use crate::ty::InferTy::*;
 use crate::ty::{
     self, AdtDef, Discr, GenericArg, GenericArgs, GenericArgsRef, List, ParamEnv, Region, TyCtxt,
-    TypeFlags, TypeSuperVisitable, TypeVisitable, TypeVisitor, UintTy,
+    TypeSuperVisitable, TypeVisitable, TypeVisitor, UintTy,
 };
 
 // Re-export and re-parameterize some `I = TyCtxt<'tcx>` types here

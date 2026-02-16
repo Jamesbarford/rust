@@ -28,7 +28,7 @@ use crate::dep_graph::{DepNodeIndex, SerializedDepNodeIndex};
 use crate::mir::interpret::{AllocDecodingSession, AllocDecodingState};
 use crate::mir::mono::MonoItem;
 use crate::mir::{self, interpret};
-use crate::ty::codec::{RefDecodable, TyDecoder, TyEncoder};
+use crate::ty::codec::{RefDecodable, TyEncoder};
 use crate::ty::{self, Ty, TyCtxt};
 
 const TAG_FILE_FOOTER: u128 = 0xC0FFEE_C0FFEE_C0FFEE_C0FFEE_C0FFEE;
@@ -526,7 +526,9 @@ where
     value
 }
 
-impl<'a, 'tcx> TyDecoder<'tcx> for CacheDecoder<'a, 'tcx> {
+impl<'a, 'tcx> rustc_type_ir::codec::TyDecoder<'tcx> for CacheDecoder<'a, 'tcx> {
+    type Interner = TyCtxt<'tcx>;
+
     const CLEAR_CROSS_CRATE: bool = false;
 
     #[inline]
@@ -963,7 +965,9 @@ impl<'a, 'tcx> SpanEncoder for CacheEncoder<'a, 'tcx> {
     }
 }
 
-impl<'a, 'tcx> TyEncoder<'tcx> for CacheEncoder<'a, 'tcx> {
+impl<'a, 'tcx> rustc_type_ir::codec::TyEncoder<'tcx> for CacheEncoder<'a, 'tcx> {
+    type Interner = TyCtxt<'tcx>;
+
     const CLEAR_CROSS_CRATE: bool = false;
 
     #[inline]
