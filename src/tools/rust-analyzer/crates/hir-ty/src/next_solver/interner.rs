@@ -54,8 +54,7 @@ use crate::{
 use super::{
     Binder, BoundExistentialPredicates, BoundTy, BoundTyKind, Clause, ClauseKind, Clauses, Const,
     ErrorGuaranteed, ExprConst, ExternalConstraints, GenericArg, GenericArgs, ParamConst, ParamEnv,
-    ParamTy, PredefinedOpaques, Predicate, RegionKind, SolverDefId, Term, Ty, TyKind, Tys, ValTree,
-    ValueConst,
+    ParamTy, PredefinedOpaques, Predicate, SolverDefId, Term, Ty, TyKind, Tys, ValTree, ValueConst,
     abi::Safety,
     fold::{BoundVarReplacer, BoundVarReplacerDelegate, FnMutDelegate},
     generics::{Generics, generics},
@@ -1074,7 +1073,6 @@ impl<'db> Interner for DbInterner<'db> {
     type LateParamRegion = LateParamRegion<'db>;
     type BoundRegion = BoundRegion;
     type PlaceholderRegion = PlaceholderRegion;
-    type InternedRegionKind = InternedRef<'db, RegionKind<'db>>;
 
     type RegionAssumptions = RegionAssumptions<'db>;
 
