@@ -4,7 +4,7 @@ use rustc_type_ir::data_structures::IndexMap;
 use rustc_type_ir::inherent::*;
 use rustc_type_ir::{
     self as ty, InferCtxtLike, Interner, PlaceholderConst, PlaceholderRegion, PlaceholderType,
-    TypeFoldable, TypeFolder, TypeSuperFoldable, TypeVisitableExt,
+    Region, TypeFoldable, TypeFolder, TypeSuperFoldable, TypeVisitableExt,
 };
 use tracing::debug;
 
@@ -91,7 +91,7 @@ where
         t
     }
 
-    fn fold_region(&mut self, r: I::Region) -> I::Region {
+    fn fold_region(&mut self, r: Region<I>) -> Region<I> {
         match r.kind() {
             ty::ReBound(ty::BoundVarIndexKind::Bound(debruijn), _)
                 if debruijn.as_usize()
