@@ -1443,13 +1443,6 @@ impl<'a, 'll, 'tcx> BuilderMethods<'a, 'tcx> for Builder<'a, 'll, 'tcx> {
                         llvm::AttributePlace::Function,
                         &[AttributeKind::AlwaysInline.create_attr(self.cx.llcx)],
                     );
-                } else {
-                    // Ensure the function call will not be inlined.
-                    attributes::apply_to_callsite(
-                        call,
-                        llvm::AttributePlace::Function,
-                        &[AttributeKind::NoInline.create_attr(self.cx.llcx)],
-                    );
                 }
             }
         }
