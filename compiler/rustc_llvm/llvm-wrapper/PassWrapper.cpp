@@ -37,6 +37,7 @@
 #include "llvm/Support/VirtualFileSystem.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/TargetParser/Host.h"
+#include "llvm/Transforms/IPO/AlwaysInliner.h"
 #include "llvm/Transforms/IPO/FunctionImport.h"
 #include "llvm/Transforms/IPO/Internalize.h"
 #include "llvm/Transforms/IPO/LowerTypeTests.h"
@@ -542,6 +543,15 @@ void LLVMSelfProfileInitializeCallbacks(
       });
 }
 
+/* Ensure that functions with the attribute `#[inline(always)]` are inlined
+ * ahead of functions that could be inlined through the heuristic inliner. */
+void LLVMAddAlwaysInlinerPassToStartOfPipeline(PassBuilder &PB) {
+  PB.registerPipelineStartEPCallback(
+      [](ModulePassManager &MPM, OptimizationLevel Level) {
+        MPM.addPass(AlwaysInlinerPass());
+      });
+}
+
 enum class LLVMRustOptStage {
   PreLinkNoLTO,
   PreLinkThinLTO,
@@ -836,10 +846,12 @@ extern "C" LLVMRustResult LLVMRustOptimize(
     // buildO0DefaultPipeline() instead. At the same time, the LTO pipelines do
     // support O0 and using them is required.
     if (OptLevel == OptimizationLevel::O0 && !IsLTO) {
+      LLVMAddAlwaysInlinerPassToStartOfPipeline(PB);
       // We manually schedule ThinLTOBufferPasses below, so don't pass the value
       // to enable it here.
       MPM = PB.buildO0DefaultPipeline(OptLevel);
     } else {
+      LLVMAddAlwaysInlinerPassToStartOfPipeline(PB);
       switch (OptStage) {
       case LLVMRustOptStage::PreLinkNoLTO:
         if (ThinLTOBufferRef) {
@@ -879,6 +891,7 @@ extern "C" LLVMRustResult LLVMRustOptimize(
       }
     }
   } else {
+    LLVMAddAlwaysInlinerPassToStartOfPipeline(PB);
     // We're not building any of the default pipelines but we still want to
     // add the verifier, instrumentation, etc passes if they were requested
     for (const auto &C : PipelineStartEPCallbacks)
