@@ -961,8 +961,8 @@ pub enum BoundVarIndexKind {
 impl<U: Interner> Lift<U> for BoundVarIndexKind {
     type Lifted = BoundVarIndexKind;
 
-    fn lift_to_interner(self, _interner: U) -> Option<Self::Lifted> {
-        Some(self)
+    fn lift_to_interner(self, _interner: U) -> Self::Lifted {
+        self
     }
 }
 

@@ -4,7 +4,7 @@ use derive_where::derive_where;
 #[cfg(feature = "nightly")]
 use rustc_data_structures::intern::Interned;
 #[cfg(feature = "nightly")]
-use rustc_macros::HashStable_NoContext;
+use rustc_macros::StableHash_NoContext;
 #[cfg(feature = "nightly")]
 use rustc_serialize::{Decodable, Encodable};
 use tracing::debug;
@@ -19,7 +19,7 @@ use crate::{
 
 /// Use this rather than `RegionKind`, whenever possible.
 #[derive_where(Clone, Copy, PartialEq, Eq, Hash; I: Interner)]
-#[cfg_attr(feature = "nightly", derive(HashStable_NoContext))]
+#[cfg_attr(feature = "nightly", derive(StableHash_NoContext))]
 #[cfg_attr(feature = "nightly", rustc_pass_by_value)]
 pub struct Region<I: Interner>(pub I::InternedRegionKind);
 

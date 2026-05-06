@@ -224,7 +224,7 @@ where
         t
     }
 
-    fn fold_region(&mut self, r0: I::Region) -> I::Region {
+    fn fold_region(&mut self, r0: Region<I>) -> Region<I> {
         let r1 = match r0.kind() {
             ty::ReVar(vid) => self.infcx.opportunistic_resolve_lt_var(vid),
             _ => r0,

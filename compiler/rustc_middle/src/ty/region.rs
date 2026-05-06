@@ -1,6 +1,6 @@
 use rustc_errors::MultiSpan;
 use rustc_hir::def_id::DefId;
-use rustc_macros::{HashStable, TyDecodable, TyEncodable, extension};
+use rustc_macros::{StableHash, TyDecodable, TyEncodable, extension};
 use rustc_span::{DUMMY_SP, ErrorGuaranteed, Symbol, kw, sym};
 pub use rustc_type_ir::RegionVid;
 use rustc_type_ir::{Region as IrRegion, RegionKind as IrRegionKind};
@@ -10,27 +10,6 @@ use crate::ty::{self, BoundVar, TyCtxt, TypeFlags};
 
 pub type Region<'tcx> = IrRegion<TyCtxt<'tcx>>;
 pub type RegionKind<'tcx> = IrRegionKind<TyCtxt<'tcx>>;
-
-impl<'tcx> rustc_type_ir::inherent::IntoKind for Region<'tcx> {
-    type Kind = RegionKind<'tcx>;
-
-    fn kind(self) -> RegionKind<'tcx> {
-        *self.0.0
-    }
-}
-
-impl<'tcx> rustc_type_ir::Flags for Region<'tcx> {
-    fn flags(&self) -> TypeFlags {
-        self.type_flags()
-    }
-
-    fn outer_exclusive_binder(&self) -> ty::DebruijnIndex {
-        match self.kind() {
-            ty::ReBound(ty::BoundVarIndexKind::Bound(debruijn), _) => debruijn.shifted_in(1),
-            _ => ty::INNERMOST,
-        }
-    }
-}
 
 #[extension(pub trait RegionExt<'tcx>)]
 impl<'tcx> Region<'tcx> {

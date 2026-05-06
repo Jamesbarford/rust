@@ -1,6 +1,7 @@
 //! Implementation of [`rustc_type_ir::Interner`] for [`TyCtxt`].
 use std::{debug_assert_matches, fmt};
 
+use rustc_data_structures::intern::Interned;
 use rustc_errors::ErrorGuaranteed;
 use rustc_hir as hir;
 use rustc_hir::def::{CtorKind, CtorOf, DefKind};
@@ -8,7 +9,9 @@ use rustc_hir::def_id::{DefId, LocalDefId};
 use rustc_hir::lang_items::LangItem;
 use rustc_span::{DUMMY_SP, Span, Symbol};
 use rustc_type_ir::lang_items::{SolverAdtLangItem, SolverLangItem, SolverTraitLangItem};
-use rustc_type_ir::{CollectAndApply, Interner, TypeFoldable, Unnormalized, search_graph};
+use rustc_type_ir::{
+    BoundVar, CollectAndApply, DebruijnIndex, Interner, TypeFoldable, Unnormalized, search_graph,
+};
 
 use crate::dep_graph::{DepKind, DepNodeIndex};
 use crate::infer::canonical::CanonicalVarKinds;
@@ -17,8 +20,8 @@ use crate::traits::solve::{
     self, CanonicalInput, ExternalConstraints, ExternalConstraintsData, QueryResult, inspect,
 };
 use crate::ty::{
-    self, Clause, Const, List, ParamTy, Pattern, PolyExistentialPredicate, Predicate, Region, Ty,
-    TyCtxt,
+    self, BoundRegion, Clause, Const, List, ParamTy, Pattern, PolyExistentialPredicate, Predicate,
+    Region, RegionKind, Ty, TyCtxt,
 };
 
 #[allow(rustc::usage_of_ty_tykind)]
