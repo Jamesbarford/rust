@@ -41,7 +41,8 @@ pub(crate) fn remove_string_attr_from_llfn(llfn: &Value, name: &str) {
 }
 
 /// Get LLVM attribute for the provided inline heuristic.
-pub(crate) fn inline_attr<'ll, 'tcx>(
+#[inline]
+fn inline_attr<'ll, 'tcx>(
     cx: &SimpleCx<'ll>,
     tcx: TyCtxt<'tcx>,
     instance: ty::Instance<'tcx>,
@@ -418,6 +419,12 @@ pub(crate) fn llfn_attrs_from_instance<'ll, 'tcx>(
         OptimizeAttr::Speed => {}
     }
 
+    if let Some(instance) = instance
+        && let Some(inline_attr) = inline_attr(cx, tcx, instance)
+    {
+        to_add.push(inline_attr);
+    }
+
     if sess.must_emit_unwind_tables() {
         to_add.push(uwtable_attr(cx.llcx, sess.opts.unstable_opts.use_sync_unwind));
     }
@@ -567,16 +574,6 @@ pub(crate) fn llfn_attrs_from_instance<'ll, 'tcx>(
 
     let function_features =
         codegen_fn_attrs.target_features.iter().map(|f| f.name.as_str()).collect::<Vec<&str>>();
-
-    // Apply function attributes as per usual if there are no user defined
-    // target features otherwise this will get applied at the callsite.
-    if function_features.is_empty() {
-        if let Some(instance) = instance
-            && let Some(inline_attr) = inline_attr(cx, tcx, instance)
-        {
-            to_add.push(inline_attr);
-        }
-    }
 
     let function_features = function_features
         .iter()

@@ -398,6 +398,10 @@ fn register_builtins(store: &mut LintStore) {
     store.register_removed("rustdoc", "use `rustdoc::all` instead");
 
     store.register_removed("unknown_features", "replaced by an error");
+    store.register_removed(
+        "inline_always_mismatching_target_features",
+        "replaced by a hard error for `#[inline(always)]` with `#[target_feature]`",
+    );
     store.register_removed("unsigned_negation", "replaced by negate_unsigned feature gate");
     store.register_removed("negate_unsigned", "cast a signed value instead");
     store.register_removed("raw_pointer_derive", "using derive with raw pointers is ok");
